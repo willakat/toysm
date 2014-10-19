@@ -1,7 +1,12 @@
 import unittest
+import time
+
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
+
+logging.basicConfig(level=LOG_LEVEL)
 
 import fsm
 
@@ -13,7 +18,7 @@ class Trace:
        cls.evt_log.append((elt, type))
 
     @classmethod
-    def contains(cls, seq, strict=False):
+    def contains(cls, seq, strict=False, show_on_fail=True):
         try:
             i = 0
             j = i + 1 if strict else len(cls.evt_log)
@@ -23,8 +28,9 @@ class Trace:
                     j = i + 1
             return True
         except ValueError:
-            print ('Did not find e (%s, %r)'%(e[0], e[1]))
-            cls.show()
+            if show_on_fail:
+                print ('Did not find e (%s, %r)'%(e[0], e[1]))
+                cls.show()
             return False
 
     @classmethod
@@ -74,6 +80,25 @@ def trace(elt, transitions=True):
         e.__class__ = dclass
         if transitions and isinstance(e, fsm.State):
             trace(tuple(e.transitions), transitions=False)
+    return elt if len(elt) > 1 else elt[0]
+
+def trace(elt, transitions=True):
+    if not elt:
+        return None
+    if not hasattr(elt, '__iter__'):
+        elt = [elt]
+
+    def h(sm, elt, *args, msg=None):
+        Trace.add(elt, msg)
+
+    for e in elt:
+        if isinstance(e, fsm.State):
+            e.add_entry_hook(h, msg='entry')
+            e.add_exit_hook(h, msg='exit')
+            if transitions and isinstance(e, fsm.State):
+                trace(tuple(e.transitions), transitions=False)
+        else:
+            e.add_hook(h, msg='action')
     return elt if len(elt) > 1 else elt[0]
 
 class TestFSM(unittest.TestCase):
