@@ -373,12 +373,41 @@ class EqualsTransition(Transition):
     
 
 class Timeout(Transition):
-    # modify source state to have entry fire a timer, if the timer expires
-    # the transition should trigger. Conversely when the state is exited, the
-    # timer should be cancelled.
     def __init__(self, delay, **kargs):
-        super(Timeout, self).__init(type=Transition.EXTERNAL, **kargs)
+        super(Timeout, self).__init__(type=Transition.EXTERNAL, **kargs)
         self.delay = delay
+        self._sched_id = None
+        self._source = None
+
+    @property
+    def source(self):
+        return self._source
+
+    @source.setter
+    def source(self, src):
+        if src is None:
+            return
+        if isinstance(src, PseudoState):
+            raise Exception("Cannot apply timeout to pseudostate")
+        self._source = src
+        src.add_entry_hook(self.schedule)
+        src.add_exit_hook(self.cancel)
+
+    def schedule(self, sm, state):
+        self._sched_id = sm._sched.enter(self.delay, 10, self.timeout, [sm])
+
+    def cancel(self, sm, state):
+        if self._sched_id:
+            sm._sched.cancel(self._sched_id)
+            self._sched_id = None
+
+    def timeout(self, sm):
+        sm.post(self)
+        self._sched_id = None
+
+    def is_triggered(self, evt):
+        LOG.debug('timeout triggered: %s, %r %r'%(self, evt, self._sched_id))
+        return self is evt
 
 
 class StateMachine:

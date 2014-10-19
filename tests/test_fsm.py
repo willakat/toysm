@@ -315,7 +315,48 @@ class TestFSM(unittest.TestCase):
               (j,  'exit'),
               ]))
 
-        Trace.show()
+
+    def test_timeout(self):
+        s1 = fsm.State('s1')
+        s2 = fsm.State('s2')
+        fs = fsm.FinalState()
+
+        s1 >> fsm.Timeout(1) >> s2 >> fsm.Timeout(1) >> fs
+        sm = fsm.StateMachine(s1, s2, fs)
+
+        trace((s1, s2, fs))
+
+        sm.start()
+
+        self.assertFalse(Trace.contains([(s2, 'entry')], show_on_fail=False))
+        time.sleep(1.1)
+        self.assertTrue(Trace.contains([(s2, 'entry')]))
+        self.assertFalse(Trace.contains([(fs, 'entry')], show_on_fail=False))
+
+        sm.join(1.1)
+        self.assertTrue(Trace.contains([(fs, 'entry')]))
+
+
+    def test_timeout_cancel(self):
+        s1 = fsm.State('s1')
+        s2 = fsm.State('s2')
+        fs = fsm.FinalState()
+
+        s1 >> fsm.Timeout(1) >> s2 >> fsm.Timeout(1) >> fs
+        s1 >> 'a' >> fs
+
+        sm = fsm.StateMachine(s1, s2, fs)
+
+        trace((s1, s2, fs))
+
+        sm.start()
+        self.assertFalse(Trace.contains([(s2, 'entry')], show_on_fail=False))
+        time.sleep(.5)
+        sm.post('a')
+        
+        sm.join(1)
+        self.assertFalse(Trace.contains([(s2, 'entry')], show_on_fail=False))
+        self.assertTrue(Trace.contains([(s1, 'exit'), (fs, 'entry')]))
 
 
 # vim:expandtab:sw=4:sts=4
