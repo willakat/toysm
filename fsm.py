@@ -192,18 +192,17 @@ class State(object):
 
 
 class ParallelState(State):
-    def add_state(self, state):
+    def add_state(self, state, initial=False):
+        if initial:
+            raise Exception("When adding to a ParallelState, no region can be an 'initial' state")
         if isinstance(state, PseudoState):
             raise Exception("PseudoStates cannot be added to a ParallelState")
-        super(State, self).add_state(state)
-
-    def add_state(self, state):
         super(ParallelState, self).add_state(state, initial=False)
 
     def get_enabled_transitions(self, evt):
         substate_transitions = []
         for c in self.children:
-            substate_transitions += self.active_substate.get_enabled_transitions(evt)
+            substate_transitions += c.get_enabled_transitions(evt)
         if substate_transitions:
             return substate_transitions
         else:

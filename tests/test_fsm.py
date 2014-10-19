@@ -358,5 +358,42 @@ class TestFSM(unittest.TestCase):
         self.assertFalse(Trace.contains([(s2, 'entry')], show_on_fail=False))
         self.assertTrue(Trace.contains([(s1, 'exit'), (fs, 'entry')]))
 
+    def test_parallel_state(self):
+        p = fsm.ParallelState()
+        s1 = fsm.State('s1', parent=p) # first region
+        s2 = fsm.State('s2', parent=p)
+
+        s11 = fsm.State('s11', parent=s1, initial=True)
+        s12 = fsm.State('s12', parent=s1)
+        s11 >> 'a' >> s12 >> 'b' >> fsm.FinalState(parent=s1)
+
+        s21 = fsm.State('s21', parent=s2, initial=True)
+        s21 >> 'a' >> fsm.FinalState(parent=s2)
+
+        trace((p, s1, s11, s12, s2, s21))
+
+        sm = fsm.StateMachine(p)
+        sm.start()
+
+        sm.post('a')
+        sm.join(.1)
+        self.assertTrue(Trace.contains([
+            #(p, 'entry'), 
+            (s1, 'entry'), 
+            (s11, 'entry'), 
+            (s11, 'exit'), 
+            (s12, 'entry')]))
+        self.assertTrue(Trace.contains([
+            #(p, 'entry'), 
+            (s2, 'entry'),
+            (s21, 'entry'),
+            (s21, 'exit'),
+            ]))
+        self.assertFalse(Trace.contains([(s2, 'exit')]))
+
+        sm.post('b')
+        sm.join(1)
+        self.assertTrue(Trace.contains([(s12, 'exit'), (s1, 'exit')]))
+        self.assertTrue(Trace.contains([(s2, 'exit')]))
 
 # vim:expandtab:sw=4:sts=4
