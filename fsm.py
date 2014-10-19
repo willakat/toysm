@@ -266,11 +266,12 @@ class _SinkState(PseudoState):
     
 
 class FinalState(_SinkState):
-    def _enter(self, sm):
+    def _enter_actions(self, sm):
         sm.post_completion(self.parent)
+        
 
 class TerminateState(_SinkState):
-    def _enter(self, sm):
+    def _enter_actions(self, sm):
         sm.stop()
 
 class EntryState(PseudoState):
@@ -305,6 +306,7 @@ class Transition(with_metaclass(TransitionMeta, object)):
         self.target = target
         self.type = type
         self.desc = desc
+        self.hooks = []
         if type is not self._ENTRY:
             if source:
                 source.add_transition(self)
