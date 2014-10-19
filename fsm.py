@@ -27,6 +27,7 @@
 # - on_entry and on_exit should /also/ be called for toplevel state in FSM
 # ? 'else' type guard
 # - on_entry/on_exit should be called on root level State of the StateMachine
+# ? get_*_transitions methods could _yield_ their result
 
 import collections
 try:
@@ -110,44 +111,60 @@ class State(object):
     def on_entry(self, sm): pass
 
     def _enter(self, sm):
+        '''Called when a state is entered.
+           Not intended to be overriden, subclass specific behavior
+           should be implemented in _enter_actions.
+        '''
         LOG.debug("%s - Entering state", self)
         for hook in self.entry_hooks:
-            hook(sm)
+            h, args, kargs = hook
+            h(sm, self, *args, **kargs)
         self.on_entry(sm)
+        self._enter_actions(sm)
+
+    def _enter_actions(self, sm):
         if not self.children:
             sm.post_completion(self)
 
     def on_exit(self, sm): pass
 
     def _exit(self, sm):
+        self._exit_actions(sm)
+        self.on_exit(sm)
+        for hook in self.exit_hooks:
+            h, args, kargs = hook
+            h(sm, self, *args, **kargs)
+        LOG.debug("%s - Exiting state", self)
+
+    def _exit_actions(self,sm):
         if self.active_substate:
             self.active_substate._exit(sm)
             self.active_substate = None
-        for hook in self.exit_hooks:
-            hook(sm)
-        self.on_exit(sm)
-        LOG.debug("%s - Exiting state", self)
 
     def add_transition(self, t):
+        '''Sets this state as the source of Transition t.'''
         if t.source:
             t.source.transitions.discard(t)
         t.source = self
         self.transitions.add(t)
 
     def accept_transition(self, t):
+        '''Called when a transition designates the state as its target.'''
         t.target = self
 
     def add_state(self, state, initial=False):
+        '''Add a substate to this state, if initial is True then the substate
+           will be considered the initial substate.'''
         self.children.add(state)
         state.parent = self
         if isinstance(state, IntialState) or initial:
             self.initial = state
 
-    def add_entry_hook(self, hook):
-        self.entry_hooks.append(hook)
+    def add_entry_hook(self, hook, *args, **kargs):
+        self.entry_hooks.append((hook, args, kargs))
 
-    def add_exit_hook(self, hook):
-        self.exit_hook.insert(0, hook)
+    def add_exit_hook(self, hook, *args, **kargs):
+        self.exit_hooks.insert(0, (hook, args, kargs))
 
     def __str__(self):
         return "{%s%s}"%(self.__class__.__name__, 
@@ -197,25 +214,26 @@ class ParallelState(State):
                 for c in self.children]
 
     def child_completed(self, sm, child):
-        self._still_running_children.pop(child)
-        if not self._still_running_children: # All children states have completed
+        self._still_running_children.remove(child)
+        if not self._still_running_children: # All children states/regions have completed
             sm.post_completion(self)
 
-    def on_entry(self, sm):
-        self._still_running_children = self.children.copy()
+    def _enter_actions(self, sm):
+        LOG.debug('pstate children %s', self.children)
+        self._still_running_children = set(self.children)
 
-    def on_exit(self, sm):
-        for c in self._still_running_children:
-            c.on_exit(sm)
+    def _exit_actions(self, sm):
+        for c in self.children:
+            c._exit(sm)
 
 class PseudoState(State):
     def __init__(self, initial=False, **kargs):
         super(PseudoState, self).__init__(initial=False, **kargs)
 
-    def _enter(self, sm):
-        # overloading _enter will prevent completion events
+    def _enter_actions(self, sm):
+        # overloading _enter_actions will prevent completion events
         # from being generated for PseudoStates
-        self.on_entry(sm)
+        pass
 
 class IntialState(PseudoState):
     def add_transition(self, t):
@@ -299,8 +317,17 @@ class Transition(with_metaclass(TransitionMeta, object)):
         else:
             return evt is None # Completion event
 
+    def _action(self, sm, evt):
+        for hook in self.hooks:
+            h, args, kargs = hook
+            h(sm, self, evt, *args, **kargs)
+        self.do_action(sm, evt)
+
     def do_action(self, sm, evt):
         self.action and self.action(sm, evt)
+
+    def add_hook(self, hook, *args, **kargs):
+        self.hooks.append((hook, args, kargs))
 
     def __rshift__(self, other):
     #def __gt__(self, other):
@@ -468,12 +495,14 @@ class StateMachine:
             t, transitions = transitions[0], transitions[1:]
             LOG.debug("%s - following transition %s", self, t)
             if t.type is Transition.INTERNAL:
-                t.action(self, evt)
+                t._action(self, evt)
                 continue
             src = t.source
             tgt = t.target or t.source # if no target is defined, target is self
             s_path, t_path = self.lca(src, tgt) 
-            if src is not tgt and isinstance(s_path[-1], ParallelState):
+            if src is not tgt \
+                and t.type is not Transition._ENTRY \
+                and isinstance(s_path[-1], ParallelState):
                 raise Exception("Error: transition from %s to %s isn't allowed "
                                 "because source and target states are in "
                                 "orthogonal regions." %
@@ -486,7 +515,7 @@ class StateMachine:
                 s_path[-2]._exit(self)
 
             LOG.debug('%s - performing transition behavior for %s', self, t)
-            t.do_action(self, evt)
+            t._action(self, evt)
 
             for a,b in [(t_path[i], t_path[i+1]) for i in range(len(t_path) - 1)]:
                 if a is not None:
