@@ -24,7 +24,7 @@
 #   => Builder idea
 # x Transition metaclass to register subclasses and associated
 #   compatible ctor arguments
-# - on_entry and on_exit should /also/ be called for toplevel state in FSM
+# x on_entry and on_exit should /also/ be called for toplevel state in FSM
 # ? 'else' type guard
 # - on_entry/on_exit should be called on root level State of the StateMachine
 # ? get_*_transitions methods could _yield_ their result
@@ -483,6 +483,7 @@ class StateMachine:
         self.assign_depth()
 
         # perform entry into the root region/state
+        self._cstate._enter(self)
         entry_transitions = self._cstate.get_entry_transitions()
         self._step(evt=None, transitions=entry_transitions)
 
@@ -501,6 +502,7 @@ class StateMachine:
                 if state.parent:
                     state.parent.child_completed(self, state)
                 else:
+                    state._exit(self)
                     self.stop() # top level region completed.
                 continue
             except KeyError:
