@@ -1,13 +1,16 @@
 # TODO:
 # - python2 issues:
 #   - sched.run doesn't support the non-blocking variant
-# - graph
-# - debug
+#     => should be possible to work around the issue by defining
+#        a custom 'wait' function.
+# ~ graph
+# ~ debug
 #   1.one state instance
 #   2.one state class
 #   3.the entire fsm
 #   for 1 & 2, a decorator/function to be applied to class/instance much
 #   like the Trace used in the test classes.
+#   => for now only a Logger is defined (TBD if this is sufficient)
 # - threaded state
 # - history states
 # x s1>'x'>s2 doesn't work because it translates to s1 > 'x' and 'x'>s2...
@@ -26,8 +29,19 @@
 #   compatible ctor arguments
 # x on_entry and on_exit should /also/ be called for toplevel state in FSM
 # ? 'else' type guard
-# - on_entry/on_exit should be called on root level State of the StateMachine
 # ? get_*_transitions methods could _yield_ their result
+# - graph should treat Transitions according to their type (INTERNAL, EXTERNAL, etc)
+# - graph: edge labels aren't positionned properly when source/target is a cluster
+#          (this is an issue with Graphviz)
+# - graph (optional): use a metaclass to have each subclass of DotMixin
+#          merge local attributes with those from superclasses. This would
+#          allow inheritance of all attributes that aren't locally overriden instead
+#          of forcing a complete redefinition of the 'dot' dictionary.
+# - rework get_enabled_transitions in State, possible to transfer logic
+#   for compound transitions to StateMachine
+# - create an Exception type and use it instead of asserts
+# - remove code used whe a transition is redefined, should simply considered an
+#   error/exception.
 
 import collections
 try:
@@ -37,6 +51,7 @@ except ImportError:
     import Queue as queue
 import sched
 import time
+import subprocess
 from inspect import isclass
 from threading import Thread
 
@@ -45,8 +60,39 @@ import logging
 from six import with_metaclass
 
 LOG = logging.getLogger(__name__)
+DOT = 'dot'
+XDOT = 'xdot'
 
-class State(object):
+
+class DotMixin(object):
+    def __init__(self):
+        super(DotMixin, self).__init__()
+        self.dot = self.dot.copy()  # instance specific copy of dot dict
+
+    def dot_attrs(self, **overrides):
+        if overrides:
+            d = self.dot.copy()
+            d.update(overrides)
+        else:
+            d = self.dot
+        def resolve(item):
+            k, v = item
+            if callable(v):
+                v = v(self)
+            v = str(v)
+            if not(v.startswith('<') and v.endswith('>')):
+                v = '"%s"'%v.replace('"', r'\"')
+            return k,v
+        return ';'.join('%s=%s'%(k,v) for (k,v) in map(resolve, d.items()))
+
+class State(DotMixin):
+    dot = {
+        'style': 'rounded',
+        'shape': 'rect',
+        #'label': lambda s: '<<table border="0" cellborder="1" sides="LR"><tr><td>%s</td></tr></table>>'%s.name or ''
+        'label': lambda s: s.name or ''
+    }
+
     def __init__(self, name=None, parent=None, initial=False):
         self.transitions = set()
         self.dflt_transition = None
@@ -171,7 +217,6 @@ class State(object):
                          '-%s'%self.name if self.name else '')
 
     def __rshift__(self, other):
-    #def __gt__(self, other):
         if isinstance(other, State):
             # Completion transition
             Transition(source=self, target=other)
@@ -181,7 +226,6 @@ class State(object):
         return other
 
     def __lshift__(self, other):
-    #def __lt__(self, other):
         if isinstance(other, State):
             # Completion transition
             Transition(source=other, target=self)
@@ -235,6 +279,15 @@ class PseudoState(State):
         pass
 
 class IntialState(PseudoState):
+    dot = {
+        'label': '',
+        'shape': 'circle',
+        'style': 'filled',
+        'fillcolor': 'black',
+        'height': .15,
+        'width': .15,
+        'margin': 0,
+    }
     def add_transition(self, t):
         if t.transitions:
             raise Exception('Initial state must have only one transition')
@@ -265,6 +318,15 @@ class _SinkState(PseudoState):
     
 
 class FinalState(_SinkState):
+    dot = {
+        'label': '',
+        'shape': 'doublecircle',
+        'style': 'filled',
+        'fillcolor': 'black',
+        'height': .1,
+        'width': .1,
+        'margin': 0,
+    }
     def _enter_actions(self, sm):
         sm.post_completion(self.parent)
         
@@ -281,6 +343,12 @@ class ExitState(PseudoState):
 
 
 class TransitionMeta(type):
+    '''Metaclass for Transitions
+       This class is informed when a subclass of Transition is created
+       and will update the Transition._transition_cls if the new class
+       supports a 'ctor_accepts' method. The latter is used to determine
+       which Transition subclass to use when Transition.make_transition
+       is called.'''
     def __new__(mcls, name, bases, kwds):
         # register the new Transition if it has an ctor_accepts method
         cls = type.__new__(mcls, name, bases, kwds)
@@ -289,13 +357,17 @@ class TransitionMeta(type):
             Transition._transition_cls.insert(0, cls)
         return cls
 
-class Transition(with_metaclass(TransitionMeta, object)):
+class Transition(with_metaclass(TransitionMeta, DotMixin)):
     INTERNAL = 'internal'
     EXTERNAL = 'external'
     LOCAL = 'local'
     _ENTRY = 'entry'
 
     _transition_cls = []    # list of known subclasses
+
+    dot = { 
+        'label': '',
+    }
 
     def __init__(self, trigger=None, action=None, source=None, target=None, 
                  type=LOCAL, desc=None):
@@ -356,6 +428,10 @@ class Transition(with_metaclass(TransitionMeta, object)):
             raise Exception("Cannot build a transition using '%r'"%value)
 
 class EqualsTransition(Transition):
+    dot = { 
+        'label': lambda t: t.value,
+    }
+
     @classmethod
     def ctor_accepts(cls, value, **kargs):
         if not isclass(value):
@@ -372,6 +448,10 @@ class EqualsTransition(Transition):
     
 
 class Timeout(Transition):
+    dot = { 
+        'label': lambda t: 'after (%ss)'%t.delay,
+    }
+
     def __init__(self, delay, **kargs):
         super(Timeout, self).__init__(type=Transition.EXTERNAL, **kargs)
         self.delay = delay
@@ -556,7 +636,64 @@ class StateMachine:
 
             transitions = tgt.get_entry_transitions() + transitions
         LOG.debug("%s - step complete for %r", self, evt)
-            
+
+    def graph(self, fname=None, format=None, prg=None):
+        '''Generates a graph of the State Machine.''' 
+
+        def write_node(stream, state, transitions=None):
+            transitions.extend(state.transitions)
+            if state.parent and isinstance(state.parent, ParallelState):
+                attrs = state.dot_attrs(shape='box', style='dashed')
+            else:
+                attrs = state.dot_attrs()
+            if state.children:
+                stream.write(bytes('subgraph cluster_%s {\n'%id(state), 'utf-8'))
+                stream.write(bytes(attrs + "\n", 'utf-8'))
+                if state.initial and not isinstance(state.initial, IntialState):
+                    i = IntialState()
+                    write_node(stream, i, transitions)
+                    transitions.append(Transition(source=i, target=state.initial, type=Transition._ENTRY))
+
+                for c in state.children:
+                    write_node(stream, c, transitions)
+                stream.write(b'}\n')
+            else:
+                stream.write(bytes('%s [%s]\n'% (id(state), attrs), 'utf-8'))
+
+        def find_endpoint_for(node):
+            if node.children:
+                if node.initial:
+                    node = node.initial
+                else:
+                    node = list(node.children)[0]
+                return find_endpoint_for(node)
+            else:
+                return id(node)
+
+        if fname:
+            cmd = "%s -T%s > %s"%(prg or DOT, format or 'svg', fname)
+        else:
+            cmd = prg or XDOT
+
+        # Go through all states and generate dot to create the graph
+        with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+            f = proc.stdin
+            transitions = []
+            f.write(b"digraph { compound=true\n")
+            write_node(f, self._cstate, transitions=transitions)
+            for t in transitions:
+                src, tgt = t.source, t.target or t.source
+                attrs = {}
+                if src.children:
+                    attrs['ltail'] = "cluster_%s"%id(src)
+                src = find_endpoint_for(src)
+                if tgt.children:
+                    attrs['lhead'] = "cluster_%s"%id(tgt)
+                tgt = find_endpoint_for(tgt)
+                f.write(bytes('%s -> %s [%s]\n'%(src, tgt, t.dot_attrs(**attrs)), 'utf-8'))
+            f.write(b"}")
+
+
 if __name__ == "__main__":
     #s = State()
     #s1 = State('s1', parent=s, initial=True)
@@ -566,15 +703,27 @@ if __name__ == "__main__":
     #s1 > s2 > Transition(lambda e:True, lambda sm,e:None) > f
 
     s1 = State('s1')
-    s2 = State('s2')
+    s2 = ParallelState('s2')
     fs = FinalState()
+
+    s21 = State('s21', parent=s2)
+    s22 = State('s22', parent=s2)
+
+    s211 = State('s211', parent=s21, initial=True)
+    s221 = State('s221', parent=s22, initial=True)
     
     s0 = State('s0')
+    h = HistoryState(parent=s0)
     s0.add_state(s1, initial=True)
     s0.add_state(s2)
     s0.add_state(fs)
     sm = StateMachine(s0)
     #sm = fsm.StateMachine(s1, s2, fs)
 
-    s1 > 'a' > s2 > 'b' > fs
+
+    s1 >> 'a' >> s2 >> 'b' >> fs
+
+    s1 >> Timeout(10) >> fs
+
+    sm.graph()
 # vim:expandtab:sw=4:sts=4
