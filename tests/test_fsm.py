@@ -14,8 +14,8 @@ class Trace:
     evt_log = []
 
     @classmethod
-    def add(cls, elt, type=None):
-       cls.evt_log.append((elt, type))
+    def add(cls, elt, kind=None):
+       cls.evt_log.append((elt, kind))
 
     @classmethod
     def contains(cls, seq, strict=False, show_on_fail=True):
@@ -237,7 +237,7 @@ class TestFSM(unittest.TestCase):
                 value[0] += 1
 
         s1 = fsm.State('s1')
-        s1 >> fsm.EqualsTransition('0', type=fsm.Transition.EXTERNAL)
+        s1 >> fsm.EqualsTransition('0', kind=fsm.Transition.EXTERNAL)
         s2 = fsm.State('s2', parent=s1, initial=True)
         j = fsm.Junction(parent=s1)
         s3 = fsm.State('s3', parent=s1)

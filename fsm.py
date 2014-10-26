@@ -17,13 +17,13 @@
 # x s1>'x'>s2 doesn't work because it translates to s1 > 'x' and 'x'>s2...
 #   whereas (s1 > 'x') > s2 works and so does s1 > ('x' > s2) !!!!
 #   => resolved by using r/lshift operators
-# - multi-intance FSM: 
+# - multi-intance FSM:
 #   - a function is used to determine a key based on Events posted
 #     to event queue, each unknown key yields a new FSM, and those
 #     that yield a known key are processed by their specific FSM.
 # x replace on_entry by _on_entry and have the latter callback into an
 #   optional user defined on_enty. Same for on_exit/_on_exit.
-# - Allow State constructor to receive substates, e.g. 
+# - Allow State constructor to receive substates, e.g.
 #   State('s1', sub=[State('s2'), ...])
 #   => Builder idea
 # x Transition metaclass to register subclasses and associated
@@ -34,20 +34,20 @@
 #       a set, the 'else' clause would then be an unguarded transition that
 #       comes last in the list.
 # ? get_*_transitions methods could _yield_ their result
-# * graph should treat Transitions according to their type (INTERNAL, EXTERNAL, etc)
-# * graph: edge labels aren't positionned properly when source/target is a cluster
-#          (this is an issue with Graphviz)
+# * graph should treat Transitions according to their type (INTERNAL, EXTERNAL,
+# etc)
+# * graph: edge labels aren't positionned properly when source/target is a
+#          cluster (this is an issue with Graphviz)
 # - graph (optional): use a metaclass to have each subclass of DotMixin
 #          merge local attributes with those from superclasses. This would
-#          allow inheritance of all attributes that aren't locally overriden instead
-#          of forcing a complete redefinition of the 'dot' dictionary.
+#          allow inheritance of all attributes that aren't locally overriden
+#          instead of forcing a complete redefinition of the 'dot' dictionary.
 # - rework get_enabled_transitions in State, possible to transfer logic
 #   for compound transitions to StateMachine
 # - create an Exception type and use it instead of asserts
 # - remove code used whe a transition is redefined, should simply considered an
 #   error/exception.
 
-import collections
 try:
     # python3
     import queue
@@ -69,7 +69,19 @@ LOG = logging.getLogger(__name__)
 DOT = 'dot'
 XDOT = 'xdot'
 
+def bytes_compat(string, enc='utf-8'):
+    '''Returns bytes of the string argument. Compatible w/ Python 2
+       and 3.'''
+    if sys.version_info.major < 3:
+        return string
+    else:
+        return bytes(string, enc)
+
+# Override bytes builtin with something that works with Python 2 & 3
+bytes = bytes_compat
+
 class DotMixin(object):
+    '''Helper for objects that can be represented with Graphviz dot.'''
     def __init__(self):
         super(DotMixin, self).__init__()
         self.dot = self.dot.copy()  # instance specific copy of dot dict
@@ -87,8 +99,8 @@ class DotMixin(object):
             v = str(v)
             if not(v.startswith('<') and v.endswith('>')):
                 v = '"%s"'%v.replace('"', r'\"')
-            return k,v
-        return ';'.join('%s=%s'%(k,v) for (k,v) in map(resolve, d.items()))
+            return k, v
+        return ';'.join('%s=%s'%(k, v) for (k, v) in map(resolve, d.items()))
 
 class State(DotMixin):
     dot = {
@@ -99,6 +111,7 @@ class State(DotMixin):
     }
 
     def __init__(self, name=None, parent=None, initial=False):
+        super(State, self).__init__()
         self.transitions = set()
         self.dflt_transition = None
         self.name = name
@@ -146,28 +159,29 @@ class State(DotMixin):
                     # else compound_transition is None: State with no
                     # egress transitions.
                 return transitions
-        else:
-            LOG.debug("%s - no transitions found for %r", self, evt)
-            return []
+        LOG.debug("%s - no transitions found for %r", self, evt)
+        return []
 
     def get_entry_transitions(self):
         if self.children:
             if self.initial:
-                return [Transition(source=self, target=self.initial, type=Transition._ENTRY)]
+                return [Transition(source=self, target=self.initial,
+                                   kind=Transition._ENTRY)]
             else:
-                raise "Ill-Formed: no Initial state identified for %s"%tgt
+                raise "Ill-Formed: no Initial state identified for %s"%self
         else:
             return []
 
     def child_completed(self, sm, child):
         pass
 
-    def call_hooks(self, sm, type):
-        for hook in self.hooks[type]:
+    def call_hooks(self, sm, kind):
+        for hook in self.hooks[kind]:
             h, args, kargs = hook
             h(sm, self, *args, **kargs)
 
-    def on_entry(self, sm): pass
+    def on_entry(self, sm):
+        pass
 
     def _enter(self, sm):
         '''Called when a state is entered.
@@ -184,7 +198,8 @@ class State(DotMixin):
         if not self.children:
             sm.post_completion(self)
 
-    def on_exit(self, sm): pass
+    def on_exit(self, sm):
+        pass
 
     def _exit(self, sm):
         self.call_hooks(sm, 'pre_exit')
@@ -193,7 +208,7 @@ class State(DotMixin):
         self.call_hooks(sm, 'post_exit')
         LOG.debug("%s - Exiting state", self)
 
-    def _exit_actions(self,sm):
+    def _exit_actions(self, sm):
         if self.active_substate:
             self.active_substate._exit(sm)
             self.active_substate = None
@@ -217,14 +232,14 @@ class State(DotMixin):
         if isinstance(state, IntialState) or initial:
             self.initial = state
 
-    def add_hook(self, type, hook, *args, **kargs):
-        type = { 'entry': 'pre_entry',
-                 'enter': 'pre_entry',
-                 'exit' : 'post_exit', }.get(type, type)
-        self.hooks[type].append((hook, args, kargs))
+    def add_hook(self, kind, hook, *args, **kargs):
+        kind = {'entry': 'pre_entry',
+                'enter': 'pre_entry',
+                'exit' : 'post_exit',}.get(kind, kind)
+        self.hooks[kind].append((hook, args, kargs))
 
     def __str__(self):
-        return "{%s%s}"%(self.__class__.__name__, 
+        return "{%s%s}"%(self.__class__.__name__,
                          '-%s'%self.name if self.name else '')
 
     def __rshift__(self, other):
@@ -247,9 +262,14 @@ class State(DotMixin):
 
 
 class ParallelState(State):
+    def __init__(self, *args, **kargs):
+        super(ParallelState, self).__init__(*args, **kargs)
+        self._still_running_children = None
+
     def add_state(self, state, initial=False):
         if initial:
-            raise Exception("When adding to a ParallelState, no region can be an 'initial' state")
+            raise Exception("When adding to a ParallelState, no region "
+                            "can be an 'initial' state")
         if isinstance(state, PseudoState):
             raise Exception("PseudoStates cannot be added to a ParallelState")
         super(ParallelState, self).add_state(state, initial=False)
@@ -264,12 +284,13 @@ class ParallelState(State):
             return self._get_local_enabled_transitions(evt)
 
     def get_entry_transitions(self):
-        return [Transition(source=self, target=c, type=Transition._ENTRY)
+        return [Transition(source=self, target=c, kind=Transition._ENTRY)
                 for c in self.children]
 
     def child_completed(self, sm, child):
         self._still_running_children.remove(child)
-        if not self._still_running_children: # All children states/regions have completed
+        if not self._still_running_children:
+            # All children states/regions have completed
             sm.post_completion(self)
 
     def _enter_actions(self, sm):
@@ -347,18 +368,18 @@ class HistoryState(PseudoState):
         self._parent = parent
         parent.add_hook('pre_exit', self.save_state)
 
-    def save_state(self, sm, state):
+    def save_state(self, *_):
         self._saved_state = self._parent.active_substate
 
     def get_enabled_transitions(self, evt):
         LOG.debug('Enterring history state of %s', self._parent)
         if self._saved_state:
             LOG.debug('Following transition to saved sate %s', self._saved_state)
-            return [ Transition(source=self, target=self._saved_state, 
-                        type=Transition._ENTRY) ]
+            return [Transition(source=self, target=self._saved_state,
+                               kind=Transition._ENTRY)]
         if self.transitions:
             LOG.debug('Following default transition')
-            return list(self.transitions) 
+            return list(self.transitions)
         LOG.debug('Using default entry for %s', self._parent)
         return self._parent.get_entry_transitions()
 
@@ -370,7 +391,7 @@ class _SinkState(PseudoState):
 
     def get_enabled_transitions(self, evt):
         return None
-    
+
 
 class FinalState(_SinkState):
     dot = {
@@ -384,7 +405,7 @@ class FinalState(_SinkState):
     }
     def _enter_actions(self, sm):
         sm.post_completion(self.parent)
-        
+
 
 class TerminateState(_SinkState):
     def _enter_actions(self, sm):
@@ -404,9 +425,9 @@ class TransitionMeta(type):
        supports a 'ctor_accepts' method. The latter is used to determine
        which Transition subclass to use when Transition.make_transition
        is called.'''
-    def __new__(mcls, name, bases, kwds):
+    def __new__(mcs, name, bases, kwds):
         # register the new Transition if it has an ctor_accepts method
-        cls = type.__new__(mcls, name, bases, kwds)
+        cls = type.__new__(mcs, name, bases, kwds)
         if 'ctor_accepts' in kwds:
             # later additions override previously known Transition classes.
             Transition._transition_cls.insert(0, cls)
@@ -420,20 +441,20 @@ class Transition(with_metaclass(TransitionMeta, DotMixin)):
 
     _transition_cls = []    # list of known subclasses
 
-    dot = { 
-        'label': '',
+    dot = {
+        'label': lambda t: t.desc or '',
     }
 
-    def __init__(self, trigger=None, action=None, source=None, target=None, 
-                 type=LOCAL, desc=None):
+    def __init__(self, trigger=None, action=None, source=None, target=None,
+                 kind=LOCAL, desc=None):
         self.trigger = trigger
         self.action = action
         self.source = source
         self.target = target
-        self.type = type
+        self.kind = kind
         self.desc = desc
         self.hooks = []
-        if type is not self._ENTRY:
+        if kind is not self._ENTRY:
             if source:
                 source.add_transition(self)
             if target:
@@ -452,24 +473,23 @@ class Transition(with_metaclass(TransitionMeta, DotMixin)):
         self.do_action(sm, evt)
 
     def do_action(self, sm, evt):
-        self.action and self.action(sm, evt)
+        if self.action:
+            self.action(sm, evt)
 
     def add_hook(self, hook, *args, **kargs):
         self.hooks.append((hook, args, kargs))
 
     def __rshift__(self, other):
-    #def __gt__(self, other):
         other.accept_transition(self)
         return other
 
     def __lshift__(self, other):
-    #def __lt__(self, other):
         other.add_transition(self)
         return other
 
     def __str__(self):
-        return '%s-%s>%s'%(self.source, 
-                           "[%s]-"%self.desc if self.desc else '', 
+        return '%s-%s>%s'%(self.source,
+                           "[%s]-"%self.desc if self.desc else '',
                            self.target)
 
     @classmethod
@@ -479,16 +499,15 @@ class Transition(with_metaclass(TransitionMeta, DotMixin)):
         for cls in cls._transition_cls:
             if cls.ctor_accepts(value, **kargs):
                 return cls(value, **kargs)
-        else:
-            raise Exception("Cannot build a transition using '%r'"%value)
+        raise Exception("Cannot build a transition using '%r'"%value)
 
 class EqualsTransition(Transition):
-    dot = { 
+    dot = {
         'label': lambda t: t.value,
     }
 
     @classmethod
-    def ctor_accepts(cls, value, **kargs):
+    def ctor_accepts(cls, value, **_):
         if not isclass(value):
             return True
 
@@ -500,15 +519,15 @@ class EqualsTransition(Transition):
 
     def is_triggered(self, evt):
         return evt is not None and self.value == evt
-    
+
 
 class Timeout(Transition):
-    dot = { 
+    dot = {
         'label': lambda t: 'after (%ss)'%t.delay,
     }
 
     def __init__(self, delay, **kargs):
-        super(Timeout, self).__init__(type=Transition.EXTERNAL, **kargs)
+        super(Timeout, self).__init__(kind=Transition.EXTERNAL, **kargs)
         self.delay = delay
         self._sched_id = None
         self._source = None
@@ -527,10 +546,10 @@ class Timeout(Transition):
         src.add_hook('entry', self.schedule)
         src.add_hook('exit', self.cancel)
 
-    def schedule(self, sm, state):
+    def schedule(self, sm, _):
         self._sched_id = sm._sched.enter(self.delay, 10, self.timeout, [sm])
 
-    def cancel(self, sm, state):
+    def cancel(self, sm, _):
         if self._sched_id:
             sm._sched.cancel(self._sched_id)
             self._sched_id = None
@@ -540,7 +559,7 @@ class Timeout(Transition):
         self._sched_id = None
 
     def is_triggered(self, evt):
-        LOG.debug('timeout triggered: %s, %r %r'%(self, evt, self._sched_id))
+        LOG.debug('timeout triggered: %s, %r %r', self, evt, self._sched_id)
         return self is evt
 
 
@@ -566,7 +585,7 @@ class StateMachine:
         self._terminated = False
         self._thread = None
 
-    def start(self): 
+    def start(self):
         if self._thread:
             raise Exception('State Machine already started')
         self._terminated = False
@@ -579,9 +598,11 @@ class StateMachine:
         t = self._thread
         if t is not None:
             t.join(*args)
-        
-    def pause(self): pass
-    def stop(self): 
+
+    def pause(self):
+        pass
+
+    def stop(self):
         '''Stops the State Machine.'''
         self._terminated = True
 
@@ -702,20 +723,20 @@ class StateMachine:
             #t, *transitions = transitions   # 'pop' a transition
             t, transitions = transitions[0], transitions[1:]
             LOG.debug("%s - following transition %s", self, t)
-            if t.type is Transition.INTERNAL:
+            if t.kind is Transition.INTERNAL:
                 t._action(self, evt)
                 continue
             src = t.source
             tgt = t.target or t.source # if no target is defined, target is self
-            s_path, t_path = self.lca(src, tgt) 
+            s_path, t_path = self.lca(src, tgt)
             if src is not tgt \
-                and t.type is not Transition._ENTRY \
+                and t.kind is not Transition._ENTRY \
                 and isinstance(s_path[-1], ParallelState):
                 raise Exception("Error: transition from %s to %s isn't allowed "
                                 "because source and target states are in "
                                 "orthogonal regions." %
                                 (src, tgt))
-            if t.type is Transition.EXTERNAL \
+            if t.kind is Transition.EXTERNAL \
                 and (len(s_path) == 1 or len(t_path) == 1):
                 s_path[-1]._exit(self)
                 t_path.insert(0, None)
@@ -725,7 +746,7 @@ class StateMachine:
             LOG.debug('%s - performing transition behavior for %s', self, t)
             t._action(self, evt)
 
-            for a,b in [(t_path[i], t_path[i+1]) for i in range(len(t_path) - 1)]:
+            for a, b in [(t_path[i], t_path[i+1]) for i in range(len(t_path) - 1)]:
                 if a is not None:
                     a.active_substate = b
                 b._enter(self)
@@ -733,8 +754,8 @@ class StateMachine:
             transitions = tgt.get_entry_transitions() + transitions
         LOG.debug("%s - step complete for %r", self, evt)
 
-    def graph(self, fname=None, format=None, prg=None):
-        '''Generates a graph of the State Machine.''' 
+    def graph(self, fname=None, fmt=None, prg=None):
+        '''Generates a graph of the State Machine.'''
 
         def write_node(stream, state, transitions=None):
             transitions.extend(state.transitions)
@@ -748,7 +769,8 @@ class StateMachine:
                 if state.initial and not isinstance(state.initial, IntialState):
                     i = IntialState()
                     write_node(stream, i, transitions)
-                    transitions.append(Transition(source=i, target=state.initial, type=Transition._ENTRY))
+                    transitions.append(Transition(source=i, target=state.initial, 
+                                                  kind=Transition._ENTRY))
 
                 for c in state.children:
                     write_node(stream, c, transitions)
@@ -767,12 +789,14 @@ class StateMachine:
                 return id(node)
 
         if fname:
-            cmd = "%s -T%s > %s"%(prg or DOT, format or 'svg', fname)
+            cmd = "%s -T%s > %s"%(prg or DOT, fmt or 'svg', fname)
         else:
             cmd = prg or XDOT
 
         # Go through all states and generate dot to create the graph
-        with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+        #with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+        proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
+        try:
             f = proc.stdin
             transitions = []
             f.write(b"digraph { compound=true\n")
@@ -788,6 +812,9 @@ class StateMachine:
                 tgt = find_endpoint_for(tgt)
                 f.write(bytes('%s -> %s [%s]\n'%(src, tgt, t.dot_attrs(**attrs)), 'utf-8'))
             f.write(b"}")
+            f.close()
+        finally:
+            proc.wait()
 
 
 if __name__ == "__main__":
@@ -807,7 +834,7 @@ if __name__ == "__main__":
 
     s211 = State('s211', parent=s21, initial=True)
     s221 = State('s221', parent=s22, initial=True)
-    
+
     s0 = State('s0')
     h = HistoryState(parent=s0)
     s0.add_state(s1, initial=True)
