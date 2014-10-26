@@ -1,5 +1,5 @@
 # TODO:
-# - python2 issues:
+# x python2 issues:
 #   - sched.run doesn't support the non-blocking variant
 #     => should be possible to work around the issue by defining
 #        a custom 'wait' function.
@@ -12,7 +12,8 @@
 #   like the Trace used in the test classes.
 #   => for now only a Logger is defined (TBD if this is sufficient)
 # - threaded state
-# - history states
+# ~ history states
+#   => DeepHistory not done yet
 # x s1>'x'>s2 doesn't work because it translates to s1 > 'x' and 'x'>s2...
 #   whereas (s1 > 'x') > s2 works and so does s1 > ('x' > s2) !!!!
 #   => resolved by using r/lshift operators
@@ -29,9 +30,12 @@
 #   compatible ctor arguments
 # x on_entry and on_exit should /also/ be called for toplevel state in FSM
 # ? 'else' type guard
+#    => this could be achieved by having State.transitions be a list rather than
+#       a set, the 'else' clause would then be an unguarded transition that
+#       comes last in the list.
 # ? get_*_transitions methods could _yield_ their result
-# - graph should treat Transitions according to their type (INTERNAL, EXTERNAL, etc)
-# - graph: edge labels aren't positionned properly when source/target is a cluster
+# * graph should treat Transitions according to their type (INTERNAL, EXTERNAL, etc)
+# * graph: edge labels aren't positionned properly when source/target is a cluster
 #          (this is an issue with Graphviz)
 # - graph (optional): use a metaclass to have each subclass of DotMixin
 #          merge local attributes with those from superclasses. This would
@@ -45,6 +49,7 @@
 
 import collections
 try:
+    # python3
     import queue
 except ImportError:
     # python2
@@ -54,6 +59,7 @@ import time
 import subprocess
 from inspect import isclass
 from threading import Thread
+import sys
 
 import logging
 
@@ -62,7 +68,6 @@ from six import with_metaclass
 LOG = logging.getLogger(__name__)
 DOT = 'dot'
 XDOT = 'xdot'
-
 
 class DotMixin(object):
     def __init__(self):
@@ -552,7 +557,12 @@ class StateMachine:
             self._cstate = cstate
         self._event_queue = queue.Queue()
         self._completed = set() # set of completed states
-        self._sched = sched.scheduler(time.time, time.sleep)
+        if sys.version_info.major < 3:
+            self._sched = sched.scheduler(time.time, self._sched_wait)
+            self._v3sched = False
+        else:
+            self._sched = sched.scheduler()
+            self._v3sched = True
         self._terminated = False
         self._thread = None
 
@@ -607,6 +617,51 @@ class StateMachine:
             a_path, b_path = self.lca(a.parent, b.parent)
             return [a] + a_path, b_path + [b]
 
+    def _sched_wait(self, delay):
+        '''Waits for next scheduled event all the while processing
+           potential external events posted to the SM.
+
+           This method is used with the python2 scheduler that
+           doesn't support the non-blocking call to run().'''
+        t_wakeup = time.time() + delay
+        while not self._terminated:
+            t = time.time()
+            if t >= t_wakeup:
+                break
+            # resolve all completion events in priority
+            self._process_completion_events()
+            self._process_next_event(t_wakeup)
+
+    def _process_completion_events(self):
+        '''Processes all available completion events.'''
+        while not self._terminated and self._completed:
+            state = self._completed.pop()
+            LOG.debug('%s - handling completion of %s', self, state)
+            self._step(evt=None, transitions=state.get_enabled_transitions(None))
+            if state.parent:
+                state.parent.child_completed(self, state)
+            else:
+                state._exit(self)
+                self.stop() # top level region completed.
+
+    def _process_next_event(self, t_max=None):
+        '''Process events posted to the SM until a specified time.'''
+        while not self._terminated:
+            try:
+                if t_max:
+                    t = time.time()
+                    if t >= t_max:
+                        break
+                    else:
+                        delay = min(t_max - t, self.MAX_STOP_WAIT)
+                else:
+                    delay = self.MAX_STOP_WAIT
+                evt = self._event_queue.get(True, delay)
+                self._step(evt)
+                break
+            except queue.Empty:
+                continue
+
     def _loop(self):
         # assign dept to each state (to assist LCA calculation)
         self.assign_depth()
@@ -618,32 +673,23 @@ class StateMachine:
 
         # loop should:
         # - exit when _terminated is True
-        # - sleep for MAX_STOP_WAIT as a time
+        # - sleep for MAX_STOP_WAIT at a time
         # - wakeup when an event is queued
         # - wakeup when a scheduled task needs to be performed
         LOG.debug('%s - beginning event loop', self)
         while not self._terminated:
-            try:
-                # resolve all completion events in priority
-                state = self._completed.pop()
-                LOG.debug('%s - handling completion of %s', self, state)
-                self._step(evt=None, transitions=state.get_enabled_transitions(None))
-                if state.parent:
-                    state.parent.child_completed(self, state)
+            # resolve all completion events in priority
+            self._process_completion_events()
+            if self._v3sched:
+                tm_next_sched = self._sched.run(blocking=False)
+                if tm_next_sched:
+                    tm_next_sched += time.time()
+                self._process_next_event(tm_next_sched)
+            else:
+                if not self._sched.empty():
+                    self._sched.run()
                 else:
-                    state._exit(self)
-                    self.stop() # top level region completed.
-                continue
-            except KeyError:
-                pass
-            tm_next_sched = self._sched.run(blocking=False)
-            delay = self.MAX_STOP_WAIT if tm_next_sched is None \
-                    else min(tm_next_sched, self.MAX_STOP_WAIT)
-            try:
-                evt = self._event_queue.get(True, delay)
-                self._step(evt)
-            except queue.Empty:
-                pass
+                    self._process_next_event()
             LOG.debug('%s - end of loop, remaining events %r',
                       self, self._event_queue.queue)
         self._thread = None

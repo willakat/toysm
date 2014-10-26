@@ -45,50 +45,13 @@ class Trace:
             print ('%i: %s - %r'%(i, e[0], e[1]))
         
 
-class TraceDecorator(object):
-    _decorated = {}
-    def _enter(self, sm):
-        Trace.add(self, 'entry')
-        super(TraceDecorator, self)._enter(sm)
-
-    def _exit(self, sm):
-        super(TraceDecorator, self)._exit(sm)
-        Trace.add(self, 'exit')
-
-    def do_action(self, sm, evt):
-        super(TraceDecorator, self).do_action(sm, evt)
-        Trace.add(self, 'action')
-        
-#class State(TraceMixin, fsm.State): pass
-#fsm.State = State
-#
-#class Transition(TraceMixin, fsm.Transition): pass
-#fsm.Transition = Transition
-
-def trace(elt, transitions=True):
-    if not elt:
-        return None
-    if not hasattr(elt, '__iter__'):
-        elt = [elt]
-    for e in elt:
-        eclass = e.__class__
-        dclass = TraceDecorator._decorated.get(eclass, None)
-        if dclass is None:
-            class dclass(TraceDecorator, eclass): pass
-            dclass.__name__ = eclass.__name__
-            TraceDecorator._decorated[eclass] = dclass
-        e.__class__ = dclass
-        if transitions and isinstance(e, fsm.State):
-            trace(tuple(e.transitions), transitions=False)
-    return elt if len(elt) > 1 else elt[0]
-
 def trace(elt, transitions=True):
     if not elt:
         return None
     if not hasattr(elt, '__iter__'):
         elt = [elt]
 
-    def h(sm, elt, *args, msg=None):
+    def h(sm, elt, msg=None):
         Trace.add(elt, msg)
 
     for e in elt:
@@ -98,7 +61,7 @@ def trace(elt, transitions=True):
             if transitions and isinstance(e, fsm.State):
                 trace(tuple(e.transitions), transitions=False)
         else:
-            e.add_hook(h, msg='action')
+            e.add_hook(lambda sm,t,evt: Trace.add(t, 'action'))
     return elt if len(elt) > 1 else elt[0]
 
 class TestFSM(unittest.TestCase):
