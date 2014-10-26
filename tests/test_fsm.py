@@ -4,7 +4,7 @@ import time
 import logging
 
 LOG_LEVEL = logging.INFO
-LOG_LEVEL = logging.DEBUG
+#LOG_LEVEL = logging.DEBUG
 
 logging.basicConfig(level=LOG_LEVEL)
 
@@ -93,8 +93,8 @@ def trace(elt, transitions=True):
 
     for e in elt:
         if isinstance(e, fsm.State):
-            e.add_entry_hook(h, msg='entry')
-            e.add_exit_hook(h, msg='exit')
+            e.add_hook('entry', h, msg='entry')
+            e.add_hook('exit', h, msg='exit')
             if transitions and isinstance(e, fsm.State):
                 trace(tuple(e.transitions), transitions=False)
         else:
@@ -378,22 +378,103 @@ class TestFSM(unittest.TestCase):
         sm.post('a')
         sm.join(.1)
         self.assertTrue(Trace.contains([
-            #(p, 'entry'), 
+            (p, 'entry'), 
             (s1, 'entry'), 
             (s11, 'entry'), 
             (s11, 'exit'), 
             (s12, 'entry')]))
         self.assertTrue(Trace.contains([
-            #(p, 'entry'), 
+            (p, 'entry'), 
             (s2, 'entry'),
             (s21, 'entry'),
             (s21, 'exit'),
             ]))
-        self.assertFalse(Trace.contains([(s2, 'exit')]))
+        self.assertFalse(Trace.contains([(s2, 'exit')], show_on_fail=False))
 
         sm.post('b')
         sm.join(1)
         self.assertTrue(Trace.contains([(s12, 'exit'), (s1, 'exit')]))
         self.assertTrue(Trace.contains([(s2, 'exit')]))
+
+    def test_history_state(self):
+        '''Check basic history state recovery when parent state is enterd.
+           Also show that transition to 'unitialized' history state follows
+           standard state entry (to initial substate).'''
+        s1 = fsm.State('s1') 
+        s2 = fsm.State('s2')
+        h = fsm.HistoryState(parent=s1)
+        s11 = fsm.State('s11', parent=s1, initial=True)
+        s12 = fsm.State('s12', parent=s1)
+        s13 = fsm.State('s13', parent=s1)
+        fs = fsm.FinalState()
+
+        s2 >> 'a' >> h
+        s11 >> 'b' >> s12 >> 'c' >> s13 >> 'd' >> s11
+        s1 >> 'e' >> s2
+        s2 >> 'f' >> fs
+
+        trace((s1, s2, s11, s12, s13, fs))
+        sm = fsm.StateMachine(s2, s1, fs)
+        sm.start()
+
+        sm.post('a', 'b', 'c', 'd', 'b', 'e', 'a', 'e', 'f')
+
+        sm.join(1)
+        
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s11, 'entry'),
+              (s11, 'exit'),    #b
+              (s12, 'entry'),
+              (s12, 'exit'),    #c
+              (s13, 'entry'),
+              (s13, 'exit'),    #d
+              (s11, 'entry'),
+              (s11, 'exit'),    #b
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #f
+              (fs, 'entry') ]))
+
+    def test_history_state_w_transition(self):
+        '''Check entry transition for an unitialized history state when
+           it has a transition defined.
+        '''
+
+        s1 = fsm.State('s1') 
+        s2 = fsm.State('s2')
+        h = fsm.HistoryState(parent=s1)
+        s11 = fsm.State('s11', parent=s1, initial=True)
+        s12 = fsm.State('s12', parent=s1)
+        fs = fsm.FinalState()
+
+        h >> s12
+        s2 >> 'a' >> h
+        s1 >> 'b' >> s2 >> 'c' >> fs
+
+        trace((s1, s2, s11, s12, fs))
+        sm = fsm.StateMachine(s2, s1, fs)
+        sm.start()
+
+        sm.post('a', 'b', 'c')
+
+        sm.join(1)
+
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s12, 'entry'),
+              (s12, 'exit'),    #b
+              (s2, 'entry'),
+              (s2, 'exit'),    #c
+              (fs, 'entry') ]))
+
+        self.assertFalse(Trace.contains([ (s11, 'entry') ], show_on_fail=False ))
 
 # vim:expandtab:sw=4:sts=4

@@ -100,8 +100,11 @@ class State(DotMixin):
         self.initial = None # Initial substate (if any)
         self.children = set()
         self.active_substate = None
-        self.entry_hooks = []
-        self.exit_hooks = []
+        self.hooks = {
+            'pre_entry': [],
+            'post_entry': [],
+            'pre_exit': [],
+            'post_exit': [], }
         if parent:
             parent.add_state(self, initial=initial)
         else:
@@ -154,6 +157,11 @@ class State(DotMixin):
     def child_completed(self, sm, child):
         pass
 
+    def call_hooks(self, sm, type):
+        for hook in self.hooks[type]:
+            h, args, kargs = hook
+            h(sm, self, *args, **kargs)
+
     def on_entry(self, sm): pass
 
     def _enter(self, sm):
@@ -162,11 +170,10 @@ class State(DotMixin):
            should be implemented in _enter_actions.
         '''
         LOG.debug("%s - Entering state", self)
-        for hook in self.entry_hooks:
-            h, args, kargs = hook
-            h(sm, self, *args, **kargs)
+        self.call_hooks(sm, 'pre_entry')
         self.on_entry(sm)
         self._enter_actions(sm)
+        self.call_hooks(sm, 'post_entry')
 
     def _enter_actions(self, sm):
         if not self.children:
@@ -175,11 +182,10 @@ class State(DotMixin):
     def on_exit(self, sm): pass
 
     def _exit(self, sm):
+        self.call_hooks(sm, 'pre_exit')
         self._exit_actions(sm)
         self.on_exit(sm)
-        for hook in self.exit_hooks:
-            h, args, kargs = hook
-            h(sm, self, *args, **kargs)
+        self.call_hooks(sm, 'post_exit')
         LOG.debug("%s - Exiting state", self)
 
     def _exit_actions(self,sm):
@@ -206,11 +212,11 @@ class State(DotMixin):
         if isinstance(state, IntialState) or initial:
             self.initial = state
 
-    def add_entry_hook(self, hook, *args, **kargs):
-        self.entry_hooks.append((hook, args, kargs))
-
-    def add_exit_hook(self, hook, *args, **kargs):
-        self.exit_hooks.insert(0, (hook, args, kargs))
+    def add_hook(self, type, hook, *args, **kargs):
+        type = { 'entry': 'pre_entry',
+                 'enter': 'pre_entry',
+                 'exit' : 'post_exit', }.get(type, type)
+        self.hooks[type].append((hook, args, kargs))
 
     def __str__(self):
         return "{%s%s}"%(self.__class__.__name__, 
@@ -296,17 +302,61 @@ class IntialState(PseudoState):
     def accept_transition(self, t):
         raise Exception('Initial state cannot be the target of a transition')
 
-    def get_entry_transitions(self):
-        transitions = self.get_enabled_transitions(None)
-        if not transitions:
-            raise "Ill-formed: no suitable transition from initial state of %s"%state
-        return transitions
+    #def get_entry_transitions(self):
+    #    transitions = self.get_enabled_transitions(None)
+    #    if not transitions:
+    #        raise "Ill-formed: no suitable transition from initial state of %s"%state
+    #    return transitions
 
 class Junction(PseudoState):
     pass
 
 class HistoryState(PseudoState):
-    pass
+    dot = {
+        'label': 'H',
+        'shape': 'circle',
+        'fontsize': 8,
+        'height': 0,
+        'width': 0,
+        'margin': 0,
+    }
+
+    def __init__(self, initial=None, **args):
+        self._parent = None
+        super(HistoryState, self).__init__(initial=False, **args)
+        self._saved_state = None
+
+    def add_transition(self, t):
+        if self.transitions:
+            raise Exception('History state only supports one egress transition')
+        super(HistoryState, self).add_transition(t)
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @parent.setter
+    def parent(self, parent):
+        assert self._parent is None
+        assert not isinstance(parent, ParallelState)
+        self._parent = parent
+        parent.add_hook('pre_exit', self.save_state)
+
+    def save_state(self, sm, state):
+        self._saved_state = self._parent.active_substate
+
+    def get_enabled_transitions(self, evt):
+        LOG.debug('Enterring history state of %s', self._parent)
+        if self._saved_state:
+            LOG.debug('Following transition to saved sate %s', self._saved_state)
+            return [ Transition(source=self, target=self._saved_state, 
+                        type=Transition._ENTRY) ]
+        if self.transitions:
+            LOG.debug('Following default transition')
+            return list(self.transitions) 
+        LOG.debug('Using default entry for %s', self._parent)
+        return self._parent.get_entry_transitions()
+
 
 class _SinkState(PseudoState):
     def add_transition(self, t):
@@ -469,8 +519,8 @@ class Timeout(Transition):
         if isinstance(src, PseudoState):
             raise Exception("Cannot apply timeout to pseudostate")
         self._source = src
-        src.add_entry_hook(self.schedule)
-        src.add_exit_hook(self.cancel)
+        src.add_hook('entry', self.schedule)
+        src.add_hook('exit', self.cancel)
 
     def schedule(self, sm, state):
         self._sched_id = sm._sched.enter(self.delay, 10, self.timeout, [sm])
