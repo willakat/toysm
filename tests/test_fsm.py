@@ -78,12 +78,12 @@ class TestFSM(unittest.TestCase):
         s2 = fsm.State(parent=s1, initial=True)
         s3 = fsm.State(parent=s1)
         sm = fsm.StateMachine(s1)
-        sm.assign_depth()
+        sm._assign_depth()
 
-        self.assertEqual(([s1],[s1, s3]), sm.lca(s1, s3))
-        self.assertEqual(([s2, s1],[s1]), sm.lca(s2, s1))
-        self.assertEqual(([s2, s1],[s1, s3]), sm.lca(s2, s3))
-        self.assertEqual(([s2],[s2]), sm.lca(s2, s2))
+        self.assertEqual(([s1],[s1, s3]), sm._lca(s1, s3))
+        self.assertEqual(([s2, s1],[s1]), sm._lca(s2, s1))
+        self.assertEqual(([s2, s1],[s1, s3]), sm._lca(s2, s3))
+        self.assertEqual(([s2],[s2]), sm._lca(s2, s2))
 
     def test_lca2(self):
         '''
@@ -107,11 +107,11 @@ class TestFSM(unittest.TestCase):
         s8 = fsm.State(parent=s5)
 
         sm = fsm.StateMachine(s1)
-        sm.assign_depth()
+        sm._assign_depth()
 
-        self.assertEqual(([s3,s2,s1],[s1, s5, s6, s7]), sm.lca(s3, s7))
-        self.assertEqual(([s3,s2],[s2, s4]), sm.lca(s3, s4))
-        self.assertEqual(([s4,s2,s1],[s1,s5,s8]), sm.lca(s4,s8))
+        self.assertEqual(([s3,s2,s1],[s1, s5, s6, s7]), sm._lca(s3, s7))
+        self.assertEqual(([s3,s2],[s2, s4]), sm._lca(s3, s4))
+        self.assertEqual(([s4,s2,s1],[s1,s5,s8]), sm._lca(s4,s8))
 
 
     def test_simple(self):
