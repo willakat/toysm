@@ -20,16 +20,13 @@ LOG = logging.getLogger(__name__)
 DOT = 'dot'
 XDOT = 'xdot'
 
-def bytes_compat(string, enc='utf-8'):
+def _bytes(string, enc='utf-8'):
     '''Returns bytes of the string argument. Compatible w/ Python 2
        and 3.'''
     if sys.version_info.major < 3:
         return string
     else:
         return bytes(string, enc)
-
-# Override bytes builtin with something that works with Python 2 & 3
-bytes = bytes_compat
 
 class DotMixin(object):
     '''Helper for objects that can be represented with Graphviz dot.'''
@@ -715,8 +712,8 @@ class StateMachine:
             else:
                 attrs = state.dot_attrs()
             if state.children:
-                stream.write(bytes('subgraph cluster_%s {\n'%id(state), 'utf-8'))
-                stream.write(bytes(attrs + "\n", 'utf-8'))
+                stream.write(_bytes('subgraph cluster_%s {\n'%id(state)))
+                stream.write(_bytes(attrs + "\n"))
                 if state.initial and not isinstance(state.initial, IntialState):
                     i = IntialState()
                     write_node(stream, i, transitions)
@@ -727,7 +724,7 @@ class StateMachine:
                     write_node(stream, c, transitions)
                 stream.write(b'}\n')
             else:
-                stream.write(bytes('%s [%s]\n'% (id(state), attrs), 'utf-8'))
+                stream.write(_bytes('%s [%s]\n'% (id(state), attrs)))
 
         def find_endpoint_for(node):
             if node.children:
@@ -761,7 +758,7 @@ class StateMachine:
                 if tgt.children:
                     attrs['lhead'] = "cluster_%s"%id(tgt)
                 tgt = find_endpoint_for(tgt)
-                f.write(bytes('%s -> %s [%s]\n'%(src, tgt, t.dot_attrs(**attrs)), 'utf-8'))
+                f.write(_bytes('%s -> %s [%s]\n'%(src, tgt, t.dot_attrs(**attrs))))
             f.write(b"}")
             f.close()
         finally:
