@@ -775,7 +775,8 @@ class StateMachine:
                 return id(node)
 
         if fname:
-            cmd = "%s -T%s > %s"%(prg or DOT, fmt or 'svg', fname)
+            fmt = fmt or (fname[-3:] if fname[-4:-3] == '.' else 'svg')
+            cmd = "%s -T%s > %s"%(prg or DOT, fmt, fname)
         else:
             cmd = prg or XDOT
 
@@ -785,7 +786,7 @@ class StateMachine:
         try:
             f = proc.stdin
             transitions = []
-            f.write(b"digraph { compound=true\n")
+            f.write(b"digraph { compound=true; edge [arrowhead=vee]\n")
             write_node(f, self._cstate, transitions=transitions)
             for t in transitions:
                 src, tgt = t.source, t.target or t.source
