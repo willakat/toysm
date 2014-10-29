@@ -1,9 +1,11 @@
+# pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
 
 try:
     # python3
     import queue
 except ImportError:
     # python2
+    # pylint: disable=import-error
     import Queue as queue
 import sched
 import time
@@ -48,7 +50,7 @@ class DotMixin(object):
             if not(v.startswith('<') and v.endswith('>')):
                 v = '"%s"'%v.replace('"', r'\"')
             return k, v
-        return ';'.join('%s=%s'%(k, v) for (k, v) in map(resolve, d.items()))
+        return ';'.join('%s=%s'%(k, v) for (k, v) in (resolve(i) for i in d.items()))
 
 class State(DotMixin):
     dot = {
@@ -113,6 +115,7 @@ class State(DotMixin):
     def get_entry_transitions(self):
         if self.children:
             if self.initial:
+                # pylint: disable=protected-access
                 return [Transition(source=self, target=self.initial,
                                    kind=Transition._ENTRY)]
             else:
@@ -158,7 +161,7 @@ class State(DotMixin):
 
     def _exit_actions(self, sm):
         if self.active_substate:
-            self.active_substate._exit(sm)
+            self.active_substate._exit(sm)  # pylint: disable=protected-access
             self.active_substate = None
 
     def add_transition(self, t):
@@ -215,6 +218,12 @@ class ParallelState(State):
         self._still_running_children = None
 
     def add_state(self, state, initial=False):
+        '''Adds a substate to the state.
+
+           If initial is True, the substate will be considered
+           the initial state of the composite state. This is equivalent
+           to adding an InitialState with a transition to the substate.
+        '''
         if initial:
             raise Exception("When adding to a ParallelState, no region "
                             "can be an 'initial' state")
@@ -223,6 +232,9 @@ class ParallelState(State):
         super(ParallelState, self).add_state(state, initial=False)
 
     def get_enabled_transitions(self, evt):
+        '''Returns the list of transitions enable for a given event on
+           this state.
+        '''
         substate_transitions = []
         for c in self.children:
             substate_transitions += c.get_enabled_transitions(evt)
@@ -232,6 +244,8 @@ class ParallelState(State):
             return self._get_local_enabled_transitions(evt)
 
     def get_entry_transitions(self):
+        '''Returns the list of transitions triggered by entering this state.'''
+        #pylint: disable=protected-access 
         return [Transition(source=self, target=c, kind=Transition._ENTRY)
                 for c in self.children]
 
@@ -247,7 +261,7 @@ class ParallelState(State):
 
     def _exit_actions(self, sm):
         for c in self.children:
-            c._exit(sm)
+            c._exit(sm)         #pylint: disable=protected-access 
 
 class PseudoState(State):
     def __init__(self, initial=False, **kargs):
@@ -323,6 +337,7 @@ class HistoryState(PseudoState):
         LOG.debug('Enterring history state of %s', self._parent)
         if self._saved_state:
             LOG.debug('Following transition to saved sate %s', self._saved_state)
+            #pylint: disable=protected-access 
             return [Transition(source=self, target=self._saved_state,
                                kind=Transition._ENTRY)]
         if self.transitions:
@@ -385,6 +400,7 @@ class TransitionMeta(type):
         cls = type.__new__(mcs, name, bases, kwds)
         if 'ctor_accepts' in kwds:
             # later additions override previously known Transition classes.
+            #pylint: disable=protected-access
             Transition._transition_cls.insert(0, cls)
         return cls
 
@@ -502,11 +518,13 @@ class Timeout(Transition):
         src.add_hook('exit', self.cancel)
 
     def schedule(self, sm, _):
-        self._sched_id = sm._sched.enter(self.delay, 10, self.timeout, [sm])
+        self._sched_id = \
+            sm._sched.enter(                    # pylint: disable = W0212
+                self.delay, 10, self.timeout, [sm])  
 
     def cancel(self, sm, _):
         if self._sched_id:
-            sm._sched.cancel(self._sched_id)
+            sm._sched.cancel(self._sched_id)    # pylint: disable = W0212
             self._sched_id = None
 
     def timeout(self, sm):
@@ -541,6 +559,7 @@ class StateMachine:
         self._thread = None
 
     def start(self):
+        '''Starts the StateMachine.'''
         if self._thread:
             raise Exception('State Machine already started')
         self._terminated = False
@@ -550,15 +569,20 @@ class StateMachine:
         self._thread.start()
 
     def join(self, *args):
+        '''Joins the StateMachine internal thread.
+           The method will return once the StateMachine has terminated.
+        '''
         t = self._thread
         if t is not None:
             t.join(*args)
 
     def pause(self):
+        '''Request the StateMachine to pause.'''
         pass
 
     def stop(self):
         '''Stops the State Machine.'''
+        LOG.debug("%s - Stopping state machine", self)
         self._terminated = True
 
     def post(self, *evts):
@@ -567,30 +591,35 @@ class StateMachine:
             self._event_queue.put(e)
 
     def post_completion(self, state):
+        '''Indicates to the SM that the state has completed.'''
         if state is None:
             self._terminated = True
         else:
             LOG.debug('%s - state completed', state)
             self._completed.add(state)
 
-    def assign_depth(self, state=None, depth=0):
+    def _assign_depth(self, state=None, depth=0):
+        '''Assign _depth attribute to states used by the StateMachine.
+           Depth is 0 for the root of the graph and each level of
+           ancestor between a state and the root adds 1 to its depth.
+        '''
         state = state or self._cstate
-        state._depth = depth
+        state._depth = depth        # pylint: disable = W0212
         for c in state.children:
-            self.assign_depth(c, depth + 1)
+            self._assign_depth(c, depth + 1)
 
-    def lca(self, a, b):
+    def _lca(self, a, b):
         '''Returns paths to least common ancestor of states a and b.'''
         if a is b:
             return [a], [b] # LCA found
-        if a._depth < b._depth:
-            a_path, b_path = self.lca(a, b.parent)
+        if a._depth < b._depth:     # pylint: disable = W0212
+            a_path, b_path = self._lca(a, b.parent)
             return a_path, b_path + [b]
-        elif b._depth < a._depth:
-            a_path, b_path = self.lca(a.parent, b)
+        elif b._depth < a._depth:   # pylint: disable = W0212
+            a_path, b_path = self._lca(a.parent, b)
             return [a] + a_path, b_path
         else:
-            a_path, b_path = self.lca(a.parent, b.parent)
+            a_path, b_path = self._lca(a.parent, b.parent)
             return [a] + a_path, b_path + [b]
 
     def _sched_wait(self, delay):
@@ -617,7 +646,7 @@ class StateMachine:
             if state.parent:
                 state.parent.child_completed(self, state)
             else:
-                state._exit(self)
+                state._exit(self)   #pylint: disable=protected-access
                 self.stop() # top level region completed.
 
     def _process_next_event(self, t_max=None):
@@ -640,10 +669,10 @@ class StateMachine:
 
     def _loop(self):
         # assign dept to each state (to assist LCA calculation)
-        self.assign_depth()
+        self._assign_depth()
 
         # perform entry into the root region/state
-        self._cstate._enter(self)
+        self._cstate._enter(self)       # pylint: disable = W0212
         entry_transitions = self._cstate.get_entry_transitions()
         self._step(evt=None, transitions=entry_transitions)
 
@@ -675,15 +704,16 @@ class StateMachine:
         if transitions is None:
             transitions = self._cstate.get_enabled_transitions(evt)
         while transitions:
+            #pylint: disable=protected-access
             #t, *transitions = transitions   # 'pop' a transition
             t, transitions = transitions[0], transitions[1:]
             LOG.debug("%s - following transition %s", self, t)
             if t.kind is Transition.INTERNAL:
-                t._action(self, evt)
+                t._action(self, evt)    # pylint: disable = W0212
                 continue
             src = t.source
             tgt = t.target or t.source # if no target is defined, target is self
-            s_path, t_path = self.lca(src, tgt)
+            s_path, t_path = self._lca(src, tgt)
             if src is not tgt \
                 and t.kind is not Transition._ENTRY \
                 and isinstance(s_path[-1], ParallelState):
@@ -724,7 +754,8 @@ class StateMachine:
                 if state.initial and not isinstance(state.initial, IntialState):
                     i = IntialState()
                     write_node(stream, i, transitions)
-                    transitions.append(Transition(source=i, target=state.initial, 
+                    # pylint: disable = protected-access
+                    transitions.append(Transition(source=i, target=state.initial,
                                                   kind=Transition._ENTRY))
 
                 for c in state.children:
@@ -780,28 +811,28 @@ if __name__ == "__main__":
 
     #s1 > s2 > Transition(lambda e:True, lambda sm,e:None) > f
 
-    s1 = State('s1')
-    s2 = ParallelState('s2')
-    fs = FinalState()
+    state_s1 = State('s1')
+    state_s2 = ParallelState('s2')
+    state_fs = FinalState()
 
-    s21 = State('s21', parent=s2)
-    s22 = State('s22', parent=s2)
+    state_s21 = State('s21', parent=state_s2)
+    state_s22 = State('s22', parent=state_s2)
 
-    s211 = State('s211', parent=s21, initial=True)
-    s221 = State('s221', parent=s22, initial=True)
+    state_s211 = State('s211', parent=state_s21, initial=True)
+    state_s221 = State('s221', parent=state_s22, initial=True)
 
-    s0 = State('s0')
-    h = HistoryState(parent=s0)
-    s0.add_state(s1, initial=True)
-    s0.add_state(s2)
-    s0.add_state(fs)
-    sm = StateMachine(s0)
+    state_s0 = State('s0')
+    state_h = HistoryState(parent=state_s0)
+    state_s0.add_state(state_s1, initial=True)
+    state_s0.add_state(state_s2)
+    state_s0.add_state(state_fs)
+    state_machine = StateMachine(state_s0)
     #sm = fsm.StateMachine(s1, s2, fs)
 
 
-    s1 >> 'a' >> s2 >> 'b' >> fs
+    state_s1 >> 'a' >> state_s2 >> 'b' >> state_fs
 
-    s1 >> Timeout(10) >> fs
+    state_s1 >> Timeout(10) >> state_fs
 
-    sm.graph()
+    state_machine.graph()
 # vim:expandtab:sw=4:sts=4
