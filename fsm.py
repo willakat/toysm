@@ -356,6 +356,13 @@ class FinalState(_SinkState):
 
 
 class TerminateState(_SinkState):
+    dot = {
+        'label': 'X',
+        'shape': 'none',
+        'margin': 0,
+        'height': 0,
+        'width': 0,
+    }
     def _enter_actions(self, sm):
         sm.stop()
 

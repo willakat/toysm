@@ -440,4 +440,35 @@ class TestFSM(unittest.TestCase):
 
         self.assertFalse(Trace.contains([ (s11, 'entry') ], show_on_fail=False ))
 
+
+    def test_terminate_state(self):
+        '''Check behavior of transition to TerminateState.'''
+
+        s1 = fsm.State('s1', initial=True)
+        s2 = fsm.State('s2', parent=s1, initial=True)
+        s3 = fsm.State('s3')
+        fs = fsm.FinalState()
+        ts = fsm.TerminateState(parent=s1)
+
+        s1 >> 'a' >> s3 >> 'b' >> fs
+        s2 >> 'c' >> ts
+
+        trace((s1, s2, s3, fs, ts))
+        sm = fsm.StateMachine(s1, s3, fs)
+
+        sm.start()
+        sm.post('c', 'a', 'b')
+        sm.join(1)
+
+        self.assertTrue(Trace.contains(
+            [ (s1, 'entry'),
+              (s2, 'entry'),
+              (s2, 'exit'),     #c
+              (ts, 'entry'), ]))
+
+        self.assertFalse(Trace.contains(
+            [ (s1, 'exit'), ], show_on_fail=False))
+
+        self.assertFalse(Trace.contains(
+            [ (fs, 'entry'), ], show_on_fail=False))
 # vim:expandtab:sw=4:sts=4
