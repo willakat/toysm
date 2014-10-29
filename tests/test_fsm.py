@@ -440,6 +440,36 @@ class TestFSM(unittest.TestCase):
 
         self.assertFalse(Trace.contains([ (s11, 'entry') ], show_on_fail=False ))
 
+    def test_internal_transition(self):
+        '''Check behavior of INTERNAL transitions.'''
+
+        s1 = fsm.State('s1')
+        s2 = fsm.State('s2', parent=s1, initial=True)
+        s3 = fsm.State('s3', parent=s1)
+
+        s2 >> 'a' >> s3 >> 'b' >> s2
+        t = fsm.EqualsTransition('c', kind=fsm.Transition.INTERNAL, source=s1)
+        s1 >> 'd' >> fsm.FinalState(parent=s1)
+
+        trace((s1, s2, s3, t))
+
+        sm = fsm.StateMachine(s1)
+
+        sm.start()
+
+        sm.post('c', 'a', 'c', 'b', 'd')
+
+        sm.join(1)
+
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (t,  'action'),   #c
+              (s2, 'exit'),     #a
+              (s3, 'entry'),
+              (t,  'action'),   #c
+              (s3, 'exit'),     #b
+              (s2, 'entry'),    
+              (s1, 'exit'),]))  #d
 
     def test_terminate_state(self):
         '''Check behavior of transition to TerminateState.'''
