@@ -45,7 +45,8 @@ etc)
          instead of forcing a complete redefinition of the 'dot' dictionary.
 - rework get_enabled_transitions in State, possible to transfer logic
   for compound transitions to StateMachine
-- create an Exception type and use it instead of asserts
+~ create an Exception type and use it instead of asserts
+  => one assert left
 - remove code used when a transition's source/target  is redefined, should
   simply considered an error/exception.
 - implement StateMachine pause function

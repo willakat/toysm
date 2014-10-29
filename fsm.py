@@ -119,7 +119,8 @@ class State(DotMixin):
                 return [Transition(source=self, target=self.initial,
                                    kind=Transition._ENTRY)]
             else:
-                raise "Ill-Formed: no Initial state identified for %s"%self
+                raise IllFormedException("No Initial state identified for %s"
+                                         % self)
         else:
             return []
 
@@ -166,8 +167,10 @@ class State(DotMixin):
 
     def add_transition(self, t):
         '''Sets this state as the source of Transition t.'''
-        if t.source:
-            t.source.transitions.discard(t)
+        if t.source is not None:
+            raise IllFormedException('Transition %s cannot be added to %s '
+                                     'because it already has a source'
+                                     % (t, self))
         t.source = self
         self.transitions.add(t)
 
@@ -225,10 +228,11 @@ class ParallelState(State):
            to adding an InitialState with a transition to the substate.
         '''
         if initial:
-            raise Exception("When adding to a ParallelState, no region "
-                            "can be an 'initial' state")
+            raise IllFormedException("When adding to a ParallelState, no "
+                                     "region can be an 'initial' state")
         if isinstance(state, PseudoState):
-            raise Exception("PseudoStates cannot be added to a ParallelState")
+            raise IllFormedException("PseudoStates cannot be added to a "
+                                     "ParallelState")
         super(ParallelState, self).add_state(state, initial=False)
 
     def get_enabled_transitions(self, evt):
@@ -284,11 +288,13 @@ class IntialState(PseudoState):
     }
     def add_transition(self, t):
         if t.transitions:
-            raise Exception('Initial state must have only one transition')
+            raise IllFormedException('Initial state must have only one '
+                                     'transition')
         super(IntialState, self).add_transition(t)
 
     def accept_transition(self, t):
-        raise Exception('Initial state cannot be the target of a transition')
+        raise IllFormedException('Initial state cannot be the target of a '
+                                 'transition')
 
     #def get_entry_transitions(self):
     #    transitions = self.get_enabled_transitions(None)
@@ -316,7 +322,8 @@ class HistoryState(PseudoState):
 
     def add_transition(self, t):
         if self.transitions:
-            raise Exception('History state only supports one egress transition')
+            raise IllFormedException('History state only supports one egress '
+                                     'transition')
         super(HistoryState, self).add_transition(t)
 
     @property
@@ -326,7 +333,9 @@ class HistoryState(PseudoState):
     @parent.setter
     def parent(self, parent):
         assert self._parent is None
-        assert not isinstance(parent, ParallelState)
+        if isinstance(parent, ParallelState):
+            raise IllFormedException("Shallow History state parent cannot be a "
+                                     "ParallelState")
         self._parent = parent
         parent.add_hook('pre_exit', self.save_state)
 
@@ -349,8 +358,9 @@ class HistoryState(PseudoState):
 
 class _SinkState(PseudoState):
     def add_transition(self, t):
-        raise Exception("%s is a sink, it can't be the source of a transition"%
-                        self.__class__.__name__)
+        raise IllFormedException(
+            "%s is a sink, it can't be the source of a transition" %
+            self.__class__.__name__)
 
     def get_enabled_transitions(self, evt):
         return None
@@ -420,16 +430,21 @@ class Transition(with_metaclass(TransitionMeta, DotMixin)):
                  kind=LOCAL, desc=None):
         self.trigger = trigger
         self.action = action
-        self.source = source
-        self.target = target
         self.kind = kind
         self.desc = desc
         self.hooks = []
         if kind is not self._ENTRY:
+            self.source = self.target = None
             if source:
                 source.add_transition(self)
             if target:
                 target.accept_transition(self)
+        else:
+            if kind is self.INTERNAL and target is not None:
+                raise IllFormedException('INTERNAL Transitions cannot have a '
+                                         'target')
+            self.source = source
+            self.target = target
 
     def is_triggered(self, evt):
         if self.trigger:
@@ -470,7 +485,8 @@ class Transition(with_metaclass(TransitionMeta, DotMixin)):
         for cls in cls._transition_cls:
             if cls.ctor_accepts(value, **kargs):
                 return cls(value, **kargs)
-        raise Exception("Cannot build a transition using '%r'"%value)
+        raise IllFormedException("Cannot build a transition using '%r'" %
+                                 value)
 
 class EqualsTransition(Transition):
     dot = {
