@@ -128,7 +128,7 @@ class TestFSM(unittest.TestCase):
         sm.start()
         sm.post('a')
         sm.post('b')
-        sm.join()
+        sm.join(1)
 
         self.assertTrue(Trace.contains(
             [(s1, 'entry'), 
@@ -165,7 +165,7 @@ class TestFSM(unittest.TestCase):
 
         sm.start()
         sm.post('a', 'b', 'c')
-        sm.join()
+        sm.join(1)
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -209,7 +209,7 @@ class TestFSM(unittest.TestCase):
 
         sm.start()
         sm.post('a', 'b', 'c')
-        sm.join()
+        sm.join(1)
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -360,7 +360,7 @@ class TestFSM(unittest.TestCase):
         self.assertTrue(Trace.contains([(s2, 'exit')]))
 
     def test_history_state(self):
-        '''Check basic history state recovery when parent state is enterd.
+        '''Check basic history state recovery when parent state is entered.
            Also show that transition to 'unitialized' history state follows
            standard state entry (to initial substate).'''
         s1 = fsm.State('s1') 
@@ -501,4 +501,33 @@ class TestFSM(unittest.TestCase):
 
         self.assertFalse(Trace.contains(
             [ (fs, 'entry'), ], show_on_fail=False))
+
+
+    def test_builder(self):
+        r = fsm.State('root', 
+                      fsm.State('s1') >> 'a' 
+                      >> fsm.State('s2', fsm.State('s21') >> 'b' 
+                                         >> fsm.State('s22')) 
+                      >> 'c' >> fsm.FinalState('fs'))
+        sm = fsm.StateMachine(r)
+        self.assertEqual({'s1', 's2', 'fs'}, {s.name for s in sm._cstate.children})
+        self.assertEqual({'s21', 's22'}, {s.name for s2 in sm._cstate.children if s2.name == 's2' for s in s2.children})
+
+    def test_builder2(self):
+        sm = fsm.StateMachine(
+            fsm.State('s1') >> fsm.State('s2') >> fsm.FinalState('fs'))
+        self.assertEqual({'s1', 's2', 'fs'}, {s.name for s in sm._cstate.children})
+
+    def test_builder3(self):
+        s1 = fsm.State('s1')
+        b1 = fsm.State('s2') << s1 << fsm.InitialState()
+
+        s3 = fsm.State('s3')
+        b2 = fsm.State('s4') >> s3
+
+        s1 >> s3
+
+        sm = fsm.StateMachine(b2 >> b1)
+        sm.graph()
+
 # vim:expandtab:sw=4:sts=4

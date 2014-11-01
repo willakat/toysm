@@ -11,15 +11,14 @@ except ImportError:
 import sched
 import time
 import subprocess
-from inspect import isclass
 from threading import Thread
 import sys
 
+from core import *
+
 import logging
-
-from six import with_metaclass
-
 LOG = logging.getLogger(__name__)
+
 DOT = 'dot'
 XDOT = 'xdot'
 
@@ -31,592 +30,23 @@ def _bytes(string, enc='utf-8'):
     else:
         return bytes(string, enc)
 
-class DotMixin(object):
-    '''Helper for objects that can be represented with Graphviz dot.'''
-    def __init__(self):
-        super(DotMixin, self).__init__()
-        self.dot = self.dot.copy()  # instance specific copy of dot dict
+def dot_attrs(obj, **overrides):
+    if overrides:
+        d = obj.dot.copy()
+        d.update(overrides)
+    else:
+        d = obj.dot
+    def resolve(item):
+        k, v = item
+        if callable(v):
+            v = v(obj)
+        v = str(v)
+        if not(v.startswith('<') and v.endswith('>')):
+            v = '"%s"' % v.replace('"', r'\"')
+        return k, v
+    return ';'.join('%s=%s' % (k, v)
+                    for (k, v) in (resolve(i) for i in d.items()))
 
-    def dot_attrs(self, **overrides):
-        if overrides:
-            d = self.dot.copy()
-            d.update(overrides)
-        else:
-            d = self.dot
-        def resolve(item):
-            k, v = item
-            if callable(v):
-                v = v(self)
-            v = str(v)
-            if not(v.startswith('<') and v.endswith('>')):
-                v = '"%s"' % v.replace('"', r'\"')
-            return k, v
-        return ';'.join('%s=%s' % (k, v)
-                        for (k, v) in (resolve(i) for i in d.items()))
-
-class IllFormedException(Exception):
-    pass
-
-
-class State(DotMixin):
-    '''State in a StateMachine.'''
-    dot = {
-        'style': 'rounded',
-        'shape': 'rect',
-        #'label': lambda s: '<<table border="0" cellborder="1" sides="LR"><tr><td>%s</td></tr></table>>'%s.name or ''
-        'label': lambda s: s.name or ''
-    }
-
-    def __init__(self, name=None, parent=None, initial=False):
-        super(State, self).__init__()
-        self.transitions = set()
-        self.dflt_transition = None
-        self.name = name
-        self.initial = None # Initial substate (if any)
-        self.children = set()
-        self.active_substate = None
-        self.hooks = {
-            'pre_entry': [],
-            'post_entry': [],
-            'pre_exit': [],
-            'post_exit': [], }
-        if parent:
-            parent.add_state(self, initial=initial)
-        else:
-            self.parent = None
-
-    def get_enabled_transitions(self, evt):
-        '''Return transitions from the state for the given event, or None
-           for states that are never the source of transition (e.g.
-           TerminateState and FinalState).'''
-        LOG.debug("%s - get_enabled_transitions for %r", self, evt)
-        # children transitions have a higher priority
-        if self.active_substate:
-            substate_transitions = \
-                self.active_substate.get_enabled_transitions(evt)
-            if substate_transitions:
-                return substate_transitions
-        # No enabled children transitions, try those defined for this state.
-        return self._get_local_enabled_transitions(evt)
-
-    def _get_local_enabled_transitions(self, evt):
-        '''Return transitions for event with this state as source.'''
-        for t in self.transitions:
-            if t.is_triggered(evt):
-                LOG.debug('%s - transition triggered by event %r: %s',
-                          self, evt, t)
-                transitions = [t]
-                if isinstance(t.target, PseudoState):
-                    compound_transition = t.target.get_enabled_transitions(None)
-                    if compound_transition:
-                        transitions += compound_transition
-                    elif compound_transition is not None:
-                       # no transitions for Event from PseudoState
-                       # the compound transition is _not_ enabled.
-                        continue
-                    # else compound_transition is None: State with no
-                    # egress transitions.
-                return transitions
-        LOG.debug("%s - no transitions found for %r", self, evt)
-        return []
-
-    def get_entry_transitions(self):
-        '''Return a list of transitions triggered by enterring this state.'''
-        if self.children:
-            if self.initial:
-                # pylint: disable=protected-access
-                return [Transition(source=self, target=self.initial,
-                                   kind=Transition._ENTRY)]
-            else:
-                raise IllFormedException("No Initial state identified for %s"
-                                         % self)
-        else:
-            return []
-
-    def child_completed(self, sm, child):
-        '''Called when this state's active subste (if any) completes.'''
-        pass
-
-    def _call_hooks(self, sm, kind):
-        for hook in self.hooks[kind]:
-            h, args, kargs = hook
-            h(sm, self, *args, **kargs)
-
-    def on_entry(self, sm):
-        '''Called when the state is entered.
-           This method is designed to be overriden to provide entry
-           customizaiton.
-        '''
-        pass
-
-    def _enter(self, sm):
-        '''Called when a state is entered.
-           Not intended to be overriden, subclass specific behavior
-           should be implemented in _enter_actions.
-        '''
-        LOG.debug("%s - Entering state", self)
-        self._call_hooks(sm, 'pre_entry')
-        self.on_entry(sm)
-        self._enter_actions(sm)
-        self._call_hooks(sm, 'post_entry')
-
-    def _enter_actions(self, sm):
-        if not self.children:
-            sm.post_completion(self)
-
-    def on_exit(self, sm):
-        '''Called when the state is exited.
-           This method is designed to be overriden to provide exit
-           customization.
-        '''
-        pass
-
-    def _exit(self, sm):
-        self._call_hooks(sm, 'pre_exit')
-        self._exit_actions(sm)
-        self.on_exit(sm)
-        self._call_hooks(sm, 'post_exit')
-        LOG.debug("%s - Exiting state", self)
-
-    def _exit_actions(self, sm):
-        if self.active_substate:
-            self.active_substate._exit(sm)  # pylint: disable=protected-access
-            self.active_substate = None
-
-    def add_transition(self, t):
-        '''Sets this state as the source of Transition t.'''
-        if t.source is not None:
-            raise IllFormedException('Transition %s cannot be added to %s '
-                                     'because it already has a source'
-                                     % (t, self))
-        t.source = self
-        self.transitions.add(t)
-
-    def accept_transition(self, t):
-        '''Called when a transition designates the state as its target.'''
-        t.target = self
-
-    def add_state(self, state, initial=False):
-        '''Add a substate to this state, if initial is True then the substate
-           will be considered the initial substate.'''
-        self.children.add(state)
-        state.parent = self
-        if isinstance(state, IntialState) or initial:
-            self.initial = state
-
-    def add_hook(self, kind, hook, *args, **kargs):
-        '''Add a hook that will be called whenever <kind> action occurs for
-           this state. <kind> can be one of 'entry, enter, exit' or
-           one of 'pre_entry, post_entry, pre_exit, post_exit' for more
-           specific requirements.
-        '''
-        kind = {'entry': 'pre_entry',
-                'enter': 'pre_entry',
-                'exit' : 'post_exit',}.get(kind, kind)
-        self.hooks[kind].append((hook, args, kargs))
-
-    def __str__(self):
-        return "{%s%s}" % (self.__class__.__name__,
-                           '-%s' % self.name if self.name else '')
-
-    def __rshift__(self, other):
-        if isinstance(other, State):
-            # Completion transition
-            Transition(source=self, target=other)
-        else:
-            other = Transition.make_transition(other)
-            self.add_transition(other)
-        return other
-
-    def __lshift__(self, other):
-        if isinstance(other, State):
-            # Completion transition
-            Transition(source=other, target=self)
-        else:
-            other = Transition.make_transition(other)
-            self.accept_transition(other)
-        return other
-
-
-class ParallelState(State):
-    def __init__(self, *args, **kargs):
-        super(ParallelState, self).__init__(*args, **kargs)
-        self._still_running_children = None
-
-    def add_state(self, state, initial=False):
-        '''Adds a substate to the state.
-
-           If initial is True, the substate will be considered
-           the initial state of the composite state. This is equivalent
-           to adding an InitialState with a transition to the substate.
-        '''
-        if initial:
-            raise IllFormedException("When adding to a ParallelState, no "
-                                     "region can be an 'initial' state")
-        if isinstance(state, PseudoState):
-            raise IllFormedException("PseudoStates cannot be added to a "
-                                     "ParallelState")
-        super(ParallelState, self).add_state(state, initial=False)
-
-    def get_enabled_transitions(self, evt):
-        '''Returns the list of transitions enable for a given event on
-           this state.
-        '''
-        substate_transitions = []
-        for c in self.children:
-            substate_transitions += c.get_enabled_transitions(evt)
-        if substate_transitions:
-            return substate_transitions
-        else:
-            return self._get_local_enabled_transitions(evt)
-
-    def get_entry_transitions(self):
-        '''Returns the list of transitions triggered by entering this state.'''
-        #pylint: disable=protected-access
-        return [Transition(source=self, target=c, kind=Transition._ENTRY)
-                for c in self.children]
-
-    def child_completed(self, sm, child):
-        self._still_running_children.remove(child)
-        if not self._still_running_children:
-            # All children states/regions have completed
-            sm.post_completion(self)
-
-    def _enter_actions(self, sm):
-        LOG.debug('pstate children %s', self.children)
-        self._still_running_children = set(self.children)
-
-    def _exit_actions(self, sm):
-        for c in self.children:
-            c._exit(sm)         #pylint: disable=protected-access
-
-class PseudoState(State):
-    '''Superclass of all PseudoStates.'''
-    def __init__(self, initial=False, **kargs):
-        super(PseudoState, self).__init__(initial=False, **kargs)
-
-    def _enter_actions(self, sm):
-        # overloading _enter_actions will prevent completion events
-        # from being generated for PseudoStates
-        pass
-
-class IntialState(PseudoState):
-    '''PseudoState that designates the 'initial' substate of a composite
-       state.
-    '''
-    dot = {
-        'label': '',
-        'shape': 'circle',
-        'style': 'filled',
-        'fillcolor': 'black',
-        'height': .15,
-        'width': .15,
-        'margin': 0,
-    }
-    def add_transition(self, t):
-        if t.transitions:
-            raise IllFormedException('Initial state must have only one '
-                                     'transition')
-        super(IntialState, self).add_transition(t)
-
-    def accept_transition(self, t):
-        raise IllFormedException('Initial state cannot be the target of a '
-                                 'transition')
-
-    #def get_entry_transitions(self):
-    #    transitions = self.get_enabled_transitions(None)
-    #    if not transitions:
-    #        raise "Ill-formed: no suitable transition from initial state of %s"%state
-    #    return transitions
-
-class Junction(PseudoState):
-    pass
-
-class HistoryState(PseudoState):
-    dot = {
-        'label': 'H',
-        'shape': 'circle',
-        'fontsize': 8,
-        'height': 0,
-        'width': 0,
-        'margin': 0,
-    }
-
-    def __init__(self, initial=None, **args):
-        self._parent = None
-        super(HistoryState, self).__init__(initial=False, **args)
-        self._saved_state = None
-
-    def add_transition(self, t):
-        if self.transitions:
-            raise IllFormedException('History state only supports one egress '
-                                     'transition')
-        super(HistoryState, self).add_transition(t)
-
-    @property
-    def parent(self):
-        return self._parent
-
-    @parent.setter
-    def parent(self, parent):
-        assert self._parent is None
-        if isinstance(parent, ParallelState):
-            raise IllFormedException("Shallow History state parent cannot be a "
-                                     "ParallelState")
-        self._parent = parent
-        parent.add_hook('pre_exit', self.save_state)
-
-    def save_state(self, *_):
-        self._saved_state = self._parent.active_substate
-
-    def get_enabled_transitions(self, evt):
-        LOG.debug('Enterring history state of %s', self._parent)
-        if self._saved_state:
-            LOG.debug('Following transition to saved sate %s',
-                      self._saved_state)
-            #pylint: disable=protected-access
-            return [Transition(source=self, target=self._saved_state,
-                               kind=Transition._ENTRY)]
-        if self.transitions:
-            LOG.debug('Following default transition')
-            return list(self.transitions)
-        LOG.debug('Using default entry for %s', self._parent)
-        return self._parent.get_entry_transitions()
-
-
-class _SinkState(PseudoState):
-    def add_transition(self, t):
-        raise IllFormedException(
-            "%s is a sink, it can't be the source of a transition" %
-            self.__class__.__name__)
-
-    def get_enabled_transitions(self, evt):
-        return None
-
-
-class FinalState(_SinkState):
-    '''PseudoState that causes its parent state/region to complete.'''
-    dot = {
-        'label': '',
-        'shape': 'doublecircle',
-        'style': 'filled',
-        'fillcolor': 'black',
-        'height': .1,
-        'width': .1,
-        'margin': 0,
-    }
-    def _enter_actions(self, sm):
-        sm.post_completion(self.parent)
-
-
-class TerminateState(_SinkState):
-    '''PseudoState that causes the StateMachine to stop.'''
-    dot = {
-        'label': 'X',
-        'shape': 'none',
-        'margin': 0,
-        'height': 0,
-        'width': 0,
-    }
-    def _enter_actions(self, sm):
-        sm.stop()
-
-class EntryState(Junction):
-    pass
-
-class ExitState(Junction):
-    pass
-
-
-class TransitionMeta(type):
-    '''Metaclass for Transitions
-       This class is informed when a subclass of Transition is created
-       and will update the Transition._transition_cls if the new class
-       supports a 'ctor_accepts' method. The latter is used to determine
-       which Transition subclass to use when Transition.make_transition
-       is called.'''
-    def __new__(mcs, name, bases, kwds):
-        # register the new Transition if it has an ctor_accepts method
-        cls = type.__new__(mcs, name, bases, kwds)
-        if 'ctor_accepts' in kwds:
-            # later additions override previously known Transition classes.
-            #pylint: disable=protected-access
-            Transition._transition_cls.insert(0, cls)
-        return cls
-
-class Transition(with_metaclass(TransitionMeta, DotMixin)):
-    '''Tranistion in a StateMachine.
-
-       Transitions have the following attributes:
-       - source [mandatory]
-       - target [optional] (can be None if the transition loops back to the
-                source)
-       - trigger a callable that returns a boolean indicating whether
-                 or not a given event should trigger the transition.
-       - action [optional] a callable that is called whenever the transition
-                is followed.
-       - kind   [optional], defaults to LOCAL.
-                INTERNAL transitions do not cause a state change when they
-                         are followed
-                EXTERNAL always cause the on_entry/on_exit of their
-                        targets/sources to be called when the transition is
-                        followed,
-                LOCAL    default type of transition, on_enter/on_exit are only
-                         called when the target/source node isn't a substate/
-                         superstate.
-    '''
-    INTERNAL = 'internal'
-    EXTERNAL = 'external'
-    LOCAL = 'local'
-    _ENTRY = 'entry'
-
-    _transition_cls = []    # list of known subclasses
-
-    dot = {
-        'label': lambda t: t.desc or '',
-    }
-
-    def __init__(self, trigger=None, action=None, source=None, target=None,
-                 kind=LOCAL, desc=None):
-        self.trigger = trigger
-        self.action = action
-        self.kind = kind
-        self.desc = desc
-        self.hooks = []
-        if kind is not self._ENTRY:
-            self.source = self.target = None
-            if source:
-                source.add_transition(self)
-            if target:
-                target.accept_transition(self)
-        else:
-            if kind is self.INTERNAL and target is not None:
-                raise IllFormedException('INTERNAL Transitions cannot have a '
-                                         'target')
-            self.source = source
-            self.target = target
-
-    def is_triggered(self, evt):
-        '''Called to determin if the transition is enabled for the <evt>
-           event.
-        '''
-        if self.trigger:
-            return self.trigger(evt)
-        else:
-            return evt is None # Completion event
-
-    def _action(self, sm, evt):
-        for hook in self.hooks:
-            h, args, kargs = hook
-            h(sm, self, evt, *args, **kargs)
-        self.do_action(sm, evt)
-
-    def do_action(self, sm, evt):
-        '''Called when this transtion is followed.'''
-        if self.action:
-            self.action(sm, evt)
-
-    def add_hook(self, hook, *args, **kargs):
-        '''Add a hook that will be called when this transition is followed.'''
-        self.hooks.append((hook, args, kargs))
-
-    def __rshift__(self, other):
-        other.accept_transition(self)
-        return other
-
-    def __lshift__(self, other):
-        other.add_transition(self)
-        return other
-
-    def __str__(self):
-        return '%s-%s>%s' % (self.source,
-                             "[%s]-" % self.desc if self.desc else '',
-                             self.target)
-
-    @classmethod
-    def make_transition(cls, value, **kargs):
-        '''Produce a Transition object based on the <value>.
-
-           kargs will be passed into the constructor of the Transition
-           (assuming a constructor needs to be called, e.g. when value
-           isn't already a Transition).
-        '''
-        if isinstance(value, Transition):
-            return value
-        for cls in cls._transition_cls:
-            if cls.ctor_accepts(value, **kargs):
-                return cls(value, **kargs)
-        raise IllFormedException("Cannot build a transition using '%r'" %
-                                 value)
-
-class EqualsTransition(Transition):
-    '''Simple Transition type that checks events against a
-       pre-defined value.
-    '''
-    dot = {
-        'label': lambda t: t.value,
-    }
-
-    @classmethod
-    def ctor_accepts(cls, value, **_):
-        if not isclass(value):
-            return True
-
-    def __init__(self, evt_value, **kargs):
-        if 'desc' not in kargs:
-            kargs['desc'] = evt_value
-        super(EqualsTransition, self).__init__(**kargs)
-        self.value = evt_value
-
-    def is_triggered(self, evt):
-        return evt is not None and self.value == evt
-
-
-class Timeout(Transition):
-    '''Transition that will trigger if the source state isn't exited
-       within a certain delay.
-    '''
-    dot = {
-        'label': lambda t: 'after (%ss)' % t.delay,
-    }
-
-    def __init__(self, delay, **kargs):
-        super(Timeout, self).__init__(kind=Transition.EXTERNAL, **kargs)
-        self.delay = delay
-        self._sched_id = None
-        self._source = None
-
-    @property
-    def source(self):
-        return self._source
-
-    @source.setter
-    def source(self, src):
-        if src is None:
-            return
-        if isinstance(src, PseudoState):
-            raise Exception("Cannot apply timeout to pseudostate")
-        self._source = src
-        src.add_hook('entry', self._schedule)
-        src.add_hook('exit', self._cancel)
-
-    def _schedule(self, sm, _):
-        self._sched_id = \
-            sm._sched.enter(                    # pylint: disable = W0212
-                self.delay, 10, self._timeout, [sm])
-
-    def _cancel(self, sm, _):
-        if self._sched_id:
-            sm._sched.cancel(self._sched_id)    # pylint: disable = W0212
-            self._sched_id = None
-
-    def _timeout(self, sm):
-        sm.post(self)
-        self._sched_id = None
-
-    def is_triggered(self, evt):
-        LOG.debug('timeout triggered: %s, %r %r', self, evt, self._sched_id)
-        return self is evt
 
 
 class StateMachine:
@@ -629,8 +59,11 @@ class StateMachine:
             self._cstate.add_state(cstate, initial=True)
             for s in states:
                 self._cstate.add_state(s)
-        else:
+        elif isinstance(cstate, State):
             self._cstate = cstate
+        else:
+            # Builder expression is wrapped into a superstate
+            self._cstate = State(sub=cstate)
         self._event_queue = queue.Queue()
         self._completed = set() # set of completed states
         if sys.version_info.major < 3:
@@ -831,14 +264,15 @@ class StateMachine:
         def write_node(stream, state, transitions=None):
             transitions.extend(state.transitions)
             if state.parent and isinstance(state.parent, ParallelState):
-                attrs = state.dot_attrs(shape='box', style='dashed')
+                attrs = dot_attrs(state, shape='box', style='dashed')
             else:
-                attrs = state.dot_attrs()
+                attrs = dot_attrs(state)
             if state.children:
                 stream.write(_bytes('subgraph cluster_%s {\n' % id(state)))
                 stream.write(_bytes(attrs + "\n"))
-                if state.initial and not isinstance(state.initial, IntialState):
-                    i = IntialState()
+                if state.initial \
+                    and not isinstance(state.initial, InitialState):
+                    i = InitialState()
                     write_node(stream, i, transitions)
                     # pylint: disable = protected-access
                     transitions.append(Transition(source=i,
@@ -885,7 +319,7 @@ class StateMachine:
                     attrs['lhead'] = "cluster_%s" % id(tgt)
                 tgt = find_endpoint_for(tgt)
                 f.write(_bytes('%s -> %s [%s]\n' %
-                               (src, tgt, t.dot_attrs(**attrs))))
+                               (src, tgt, dot_attrs(t, **attrs))))
             f.write(b"}")
             f.close()
         finally:
@@ -893,6 +327,8 @@ class StateMachine:
 
 
 if __name__ == "__main__":
+    from transition import Timeout
+    from state import FinalState, HistoryState
     #s = State()
     #s1 = State('s1', parent=s, initial=True)
     #s2 = State('s2', parent=s)
@@ -924,4 +360,5 @@ if __name__ == "__main__":
     state_s1 >> Timeout(10) >> state_fs
 
     state_machine.graph()
+
 # vim:expandtab:sw=4:sts=4

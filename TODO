@@ -18,19 +18,19 @@ x python2 issues:
 x s1>'x'>s2 doesn't work because it translates to s1 > 'x' and 'x'>s2...
   whereas (s1 > 'x') > s2 works and so does s1 > ('x' > s2) !!!!
   => resolved by using r/lshift operators
-- multi-intance FSM:
+- multi-instance FSM:
   - a function is used to determine a key based on Events posted
     to event queue, each unknown key yields a new FSM, and those
     that yield a known key are processed by their specific FSM.
 x replace on_entry by _on_entry and have the latter callback into an
   optional user defined on_enty. Same for on_exit/_on_exit.
-- Allow State constructor to receive substates, e.g.
+x Allow State constructor to receive substates, e.g.
   State('s1', sub=[State('s2'), ...])
   => Builder idea
 x Transition metaclass to register subclasses and associated
   compatible ctor arguments
 x on_entry and on_exit should /also/ be called for toplevel state in FSM
-? 'else' type guard
+x 'else' type guard
    => this could be achieved by having State.transitions be a list rather than
       a set, the 'else' clause would then be an unguarded transition that
       comes last in the list.
@@ -47,15 +47,26 @@ etc)
   for compound transitions to StateMachine
 ~ create an Exception type and use it instead of asserts
   => one assert left
-- remove code used when a transition's source/target  is redefined, should
+x remove code used when a transition's source/target  is redefined, should
   simply considered an error/exception.
 - implement StateMachine pause function
-- support for event deferral
+- add support for event deferral
 - support for Choice Pseudo States (i.e. Dynamic eval as opposed to static
   eval currently in place for Junctions)
 - Add GPL file and GPL headers to .py files.
 - Scapy integration (PacketTransition StateMachineBox)
 - use 'public' decorator snippet to manage exported/public symbols
-? remove DotMixin => functionality isn't used, replace it with a function
+x remove DotMixin => functionality isn't used, replace it with a function
   to generate the attribute string based on the dot attribute of a node.
+* graph: specific representation for entry/exit states
+- break fsm.py up into several files: sm.py transition.py state.py
 
+
+  B1(s1)
+  B1 << s2 = B1(s1 << s2) 
+  B1 << s3 = B1(s1 << s2 << s3)
+  B1 >> s4 = B1(s1 << s2 << s3 >>s4)
+  s5 >> B1 = B1(s5 >> s1 >> s2 << s3 >>s4)
+
+  B2(s6)
+  B1 >> B2 = B1(s5 >> s1 >> s2 << s3 >>s4 >> s6); B2 still equal to (s6)
