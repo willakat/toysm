@@ -14,7 +14,9 @@ import subprocess
 from threading import Thread
 import sys
 
-from core import *
+from toysm.core import State, ParallelState, InitialState, Transition
+
+from toysm.public import public
 
 import logging
 LOG = logging.getLogger(__name__)
@@ -31,6 +33,9 @@ def _bytes(string, enc='utf-8'):
         return bytes(string, enc)
 
 def dot_attrs(obj, **overrides):
+    '''Convert 'dot' attributes in a State or Transition for parsing by
+       the dot interpreter.
+    '''
     if overrides:
         d = obj.dot.copy()
         d.update(overrides)
@@ -48,7 +53,7 @@ def dot_attrs(obj, **overrides):
                     for (k, v) in (resolve(i) for i in d.items()))
 
 
-
+@public
 class StateMachine:
     '''StateMachine .... think of something smart to put here ;-).'''
     MAX_STOP_WAIT = .1
@@ -325,8 +330,7 @@ class StateMachine:
 
 
 if __name__ == "__main__":
-    from transition import Timeout
-    from state import FinalState, HistoryState
+    from toysm import Timeout, HistoryState, FinalState
     #s = State()
     #s1 = State('s1', parent=s, initial=True)
     #s2 = State('s2', parent=s)

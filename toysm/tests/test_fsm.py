@@ -8,7 +8,7 @@ LOG_LEVEL = logging.INFO
 
 logging.basicConfig(level=LOG_LEVEL)
 
-import fsm
+import toysm as fsm
 
 class Trace:
     evt_log = []

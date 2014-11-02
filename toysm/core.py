@@ -3,9 +3,11 @@
 
 from inspect import isclass
 from six import with_metaclass
+from toysm.public import public
 import logging
 LOG = logging.getLogger(__name__)
 
+@public
 class IllFormedException(Exception):
     '''Exception raised when a statemachine violates well-formedness rules.
 
@@ -15,6 +17,7 @@ class IllFormedException(Exception):
     pass
 
 
+@public
 class State(object):
     '''State in a StateMachine.'''
     dot = {
@@ -213,7 +216,11 @@ class State(object):
         return _StateMachineBuilder(self) << other
 
 
+@public
 class ParallelState(State):
+    '''State containing several "parallel" regions that execute
+       independently.
+    '''
     def __init__(self, *args, **kargs):
         super(ParallelState, self).__init__(*args, **kargs)
         self._still_running_children = None
@@ -243,7 +250,7 @@ class ParallelState(State):
         #pylint: disable=protected-access
         transitions = []
         for c in self.children:
-            transitions.append(Transition(source=self, target=c, 
+            transitions.append(Transition(source=self, target=c,
                                           kind=Transition._ENTRY))
             _, entry_transitions = c.get_entry_transitions()
             transitions.extend(entry_transitions)
@@ -263,12 +270,12 @@ class ParallelState(State):
         for c in self.children:
             c._exit(sm)         #pylint: disable=protected-access
 
+@public
 class PseudoState(State):
     '''Superclass of all PseudoStates.'''
 
-    '''specifies whether the PseudoState is allowed to be the terminal
-       node in a (potentially compound) transition.
-    '''
+    #specifies whether the PseudoState is allowed to be the terminal
+    #node in a (potentially compound) transition.
     transition_terminal = False
 
     def __init__(self, name=None, initial=False, **kargs):
@@ -294,9 +301,8 @@ class PseudoState(State):
                     break
         return allowed, transitions
 
-    def _enter_actions(self, sm):
-        pass
 
+@public
 class InitialState(PseudoState):
     '''PseudoState that designates the 'initial' substate of a composite
        state.
@@ -325,13 +331,22 @@ class InitialState(PseudoState):
     def get_entry_transitions(self):
         allowed, transitions = super(InitialState, self).get_entry_transitions()
         if not (allowed and transitions):
-            raise "Ill-formed: no suitable transition from initial state of %s"%state
+            raise IllFormedException("No suitable transition from initial "
+                                     "state of %s" % self.parent)
         return True, transitions
 
+
+@public
 class Junction(PseudoState):
+    '''PseudoState that allows multiple transitions to be stringed together.'''
     pass
 
+
+@public
 class HistoryState(PseudoState):
+    '''PseudoState that saves the current substate of a composite state
+       and allows it to be directly re-entered.
+    '''
     dot = {
         'label': 'H',
         'shape': 'circle',
@@ -387,6 +402,7 @@ class _SinkState(PseudoState):
             self.__class__.__name__)
 
 
+@public
 class FinalState(_SinkState):
     '''PseudoState that causes its parent state/region to complete.'''
     dot = {
@@ -402,6 +418,7 @@ class FinalState(_SinkState):
         sm.post_completion(self.parent)
 
 
+@public
 class TerminateState(_SinkState):
     '''PseudoState that causes the StateMachine to stop.'''
     dot = {
@@ -414,9 +431,11 @@ class TerminateState(_SinkState):
     def _enter_actions(self, sm):
         sm.stop()
 
+@public
 class EntryState(Junction):
     pass
 
+@public
 class ExitState(Junction):
     pass
 
@@ -513,6 +532,7 @@ class TransitionMeta(type):
             Transition._transition_cls.insert(0, cls)
         return cls
 
+@public
 class Transition(with_metaclass(TransitionMeta)):
     '''Tranistion in a StateMachine.
 
@@ -618,6 +638,7 @@ class Transition(with_metaclass(TransitionMeta)):
         raise IllFormedException("Cannot build a transition using '%r'" %
                                  value)
 
+@public
 class EqualsTransition(Transition):
     '''Simple Transition type that checks events against a
        pre-defined value.
@@ -641,6 +662,7 @@ class EqualsTransition(Transition):
         return evt is not None and self.value == evt
 
 
+@public
 class Timeout(Transition):
     '''Transition that will trigger if the source state isn't exited
        within a certain delay.

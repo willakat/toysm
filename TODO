@@ -59,7 +59,7 @@ x remove code used when a transition's source/target  is redefined, should
   eval currently in place for Junctions)
 - Add GPL file and GPL headers to .py files.
 - Scapy integration (PacketTransition StateMachineBox)
-- use 'public' decorator snippet to manage exported/public symbols
+x use 'public' decorator snippet to manage exported/public symbols
 x remove DotMixin => functionality isn't used, replace it with a function
   to generate the attribute string based on the dot attribute of a node.
 * graph: specific representation for entry/exit states
