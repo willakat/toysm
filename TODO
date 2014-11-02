@@ -34,7 +34,9 @@ x 'else' type guard
    => this could be achieved by having State.transitions be a list rather than
       a set, the 'else' clause would then be an unguarded transition that
       comes last in the list.
-? get_*_transitions methods could _yield_ their result
+x get_*_transitions methods could _yield_ their result
+  => NO. All transitions in a compound transition need to be followed
+     so using a yield doesn't improve anything
 * graph should treat Transitions according to their type (INTERNAL, EXTERNAL,
 etc)
 * graph: edge labels aren't positionned properly when source/target is a
@@ -43,8 +45,10 @@ etc)
          merge local attributes with those from superclasses. This would
          allow inheritance of all attributes that aren't locally overriden
          instead of forcing a complete redefinition of the 'dot' dictionary.
-- rework get_enabled_transitions in State, possible to transfer logic
+x rework get_enabled_transitions in State, possible to transfer logic
   for compound transitions to StateMachine
+  => logic simplified by recursively resolving entry transitions directly
+     when a transition is followed that reaches a state.
 ~ create an Exception type and use it instead of asserts
   => one assert left
 x remove code used when a transition's source/target  is redefined, should
@@ -59,14 +63,7 @@ x remove code used when a transition's source/target  is redefined, should
 x remove DotMixin => functionality isn't used, replace it with a function
   to generate the attribute string based on the dot attribute of a node.
 * graph: specific representation for entry/exit states
-- break fsm.py up into several files: sm.py transition.py state.py
+x break fsm.py up into several files: sm.py transition.py state.py
+  => core.py contains transition + state (dificult to avoid circular dependencies
+  otherwise)
 
-
-  B1(s1)
-  B1 << s2 = B1(s1 << s2) 
-  B1 << s3 = B1(s1 << s2 << s3)
-  B1 >> s4 = B1(s1 << s2 << s3 >>s4)
-  s5 >> B1 = B1(s5 >> s1 >> s2 << s3 >>s4)
-
-  B2(s6)
-  B1 >> B2 = B1(s5 >> s1 >> s2 << s3 >>s4 >> s6); B2 still equal to (s6)

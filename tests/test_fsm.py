@@ -29,7 +29,7 @@ class Trace:
             return True
         except ValueError:
             if show_on_fail:
-                print ('Did not find e (%s, %r)'%(e[0], e[1]))
+                print ('Did not find item (%s, %r)'%(e[0], e[1]))
                 cls.show()
             return False
 
@@ -528,6 +528,5 @@ class TestFSM(unittest.TestCase):
         s1 >> s3
 
         sm = fsm.StateMachine(b2 >> b1)
-        sm.graph()
 
 # vim:expandtab:sw=4:sts=4

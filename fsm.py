@@ -109,11 +109,8 @@ class StateMachine:
 
     def post_completion(self, state):
         '''Indicates to the SM that the state has completed.'''
-        if state is None:
-            self._terminated = True
-        else:
-            LOG.debug('%s - state completed', state)
-            self._completed.add(state)
+        LOG.debug('%s - state completed', state)
+        self._completed.add(state)
 
     def _assign_depth(self, state=None, depth=0):
         '''Assign _depth attribute to states used by the StateMachine.
@@ -150,7 +147,7 @@ class StateMachine:
             t = time.time()
             if t >= t_wakeup:
                 break
-            # resolve all completion events in priority
+            # resolve all completion events first
             self._process_completion_events()
             self._process_next_event(t_wakeup)
 
@@ -191,7 +188,7 @@ class StateMachine:
 
         # perform entry into the root region/state
         self._cstate._enter(self)       # pylint: disable = W0212
-        entry_transitions = self._cstate.get_entry_transitions()
+        _, entry_transitions = self._cstate.get_entry_transitions()
         self._step(evt=None, transitions=entry_transitions)
 
         # loop should:
@@ -222,6 +219,9 @@ class StateMachine:
         if transitions is None:
             transitions = self._cstate.get_enabled_transitions(evt)
         while transitions:
+            if LOG.isEnabledFor(logging.DEBUG):
+                LOG.debug("Transitions to be processed: %s",
+                          [str(t) for t in transitions])
             #pylint: disable=protected-access
             #t, *transitions = transitions   # 'pop' a transition
             t, transitions = transitions[0], transitions[1:]
@@ -254,8 +254,6 @@ class StateMachine:
                 if a is not None:
                     a.active_substate = b
                 b._enter(self)
-
-            transitions = tgt.get_entry_transitions() + transitions
         LOG.debug("%s - step complete for %r", self, evt)
 
     def graph(self, fname=None, fmt=None, prg=None):
