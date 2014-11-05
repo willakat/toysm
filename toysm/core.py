@@ -440,7 +440,7 @@ class ExitState(Junction):
     pass
 
 
-class _StateMachineBuilder(object):
+class _StateExpression(object):
     '''Class used to simplify stitching together states and transitions.
 
        A(s1): produces a builder containing a single state
@@ -491,7 +491,7 @@ class _StateMachineBuilder(object):
         return a, b
 
     def __rshift__(self, other):
-        if isinstance(other, _StateMachineBuilder):
+        if isinstance(other, _StateExpression):
             for s in other.states:
                 self.add_state(s)
             self.connect(self.tail, other.head)
@@ -501,7 +501,7 @@ class _StateMachineBuilder(object):
         return self
 
     def __lshift__(self, other):
-        if isinstance(other, _StateMachineBuilder):
+        if isinstance(other, _StateExpression):
             for s in other.states:
                 self.add_state(s)
             self.connect(other.head, self.tail)

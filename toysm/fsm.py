@@ -67,8 +67,8 @@ class StateMachine:
         elif isinstance(cstate, State):
             self._cstate = cstate
         else:
-            # Builder expression is wrapped into a superstate
-            self._cstate = State(sub=cstate)
+            # State expression is wrapped into a superstate
+            self._cstate = State(sexp=cstate)
         self._event_queue = queue.Queue()
         self._completed = set() # set of completed states
         if sys.version_info.major < 3:
