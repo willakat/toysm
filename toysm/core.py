@@ -27,7 +27,7 @@ class State(object):
         'label': lambda s: s.name or ''
     }
 
-    def __init__(self, name=None, sub=None, parent=None, initial=False):
+    def __init__(self, name=None, sexp=None, parent=None, initial=False):
         super(State, self).__init__()
         self.transitions = []
         self.dflt_transition = None
@@ -43,8 +43,8 @@ class State(object):
         self.parent = None
         if parent:
             self.set_parent(parent, initial=initial)
-        if sub:
-            sub.set_parent(self, initial=True)
+        if sexp:
+            sexp.set_parent(self, initial=True)
 
     def get_enabled_transitions(self, evt):
         '''Return transitions from the state for the given event, or None
@@ -164,14 +164,14 @@ class State(object):
     def accept_substate(self, state, initial):
         pass
 
-    def add_state(self, state, initial=False):
-        '''Adds a substate to the state.
+    def add_state(self, sexp, initial=False):
+        '''Adds a substate or state expression to the state.
 
            If initial is True, the substate will be considered
            the initial state of the composite state. This is equivalent
            to adding an InitialState with a transition to the substate.
         '''
-        state.set_parent(self, initial=initial)
+        sexp.set_parent(self, initial=initial)
 
     def set_parent(self, state, initial=False):
         '''Set this state's parent.'''
@@ -210,10 +210,10 @@ class State(object):
                            '-%s' % self.name if self.name else '')
 
     def __rshift__(self, other):
-        return _StateMachineBuilder(self) >> other
+        return _StateExpression(self) >> other
 
     def __lshift__(self, other):
-        return _StateMachineBuilder(self) << other
+        return _StateExpression(self) << other
 
 
 @public
@@ -273,6 +273,16 @@ class ParallelState(State):
 @public
 class PseudoState(State):
     '''Superclass of all PseudoStates.'''
+
+    dot = {
+        'label': '',
+        'shape': 'circle',
+        'style': 'filled',
+        'fillcolor': 'black',
+        'height': .15,
+        'width': .15,
+        'margin': 0,
+    }
 
     #specifies whether the PseudoState is allowed to be the terminal
     #node in a (potentially compound) transition.
