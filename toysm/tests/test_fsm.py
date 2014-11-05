@@ -8,6 +8,7 @@ LOG_LEVEL = logging.INFO
 
 logging.basicConfig(level=LOG_LEVEL)
 
+from toysm import *
 import toysm as fsm
 
 class Trace:
@@ -528,5 +529,115 @@ class TestFSM(unittest.TestCase):
         s1 >> s3
 
         sm = fsm.StateMachine(b2 >> b1)
+
+    def test_get_active_states(self):
+        s0 = fsm.ParallelState('root')
+        s11 = fsm.State('s11', fsm.State('s111') >> 'c' >> fsm.State('s112'))
+        s12 = fsm.State('s12')
+        s21 = fsm.State('s21', fsm.State('s211') >> 'c' >> fsm.State('s212'))
+        s22 = fsm.State('s22')
+        s1 = fsm.State('s1', 
+                       s11 >> 'a' >> s12 >> 'b' >> s11 >> 'd' >> fsm.FinalState(),
+                       parent=s0) 
+        s2 = fsm.State('s2',
+                       s21 >> 'a' >> s22 >> 'b' >> s21 >> 'd' >> fsm.FinalState(),
+                       parent=s0) 
+
+        sm = fsm.StateMachine(s0)
+
+        sm.start()
+        sm.post('a')
+        sm.join(.1)
+        self.assertEqual({'s12', 's22', 's1', 'root', 's2'},
+                         {s.name for (s,_) in s0.get_active_states()})
+        sm.post('b')
+        sm.join(.1)
+        self.assertEqual({'s11', 's21', 's111', 's211', 's1', 'root', 's2'},
+                         {s.name for (s,_) in s0.get_active_states()})
+        sm.post('c')
+        sm.join(.1)
+        self.assertEqual({'s11', 's21', 's112', 's212', 's1', 'root', 's2'},
+                         {s.name for (s,_) in s0.get_active_states()})
+        sm.post('d')
+        sm.join(1)
+
+    def test_deep_history(self):
+        '''Check deep history state directly inside Parallel State.'''
+        p0 = fsm.ParallelState('p0')
+        s1 = State('s1')
+        s2 = State('s2')
+        p0.add_state(State('', s1 >> '1' >> s2 >> '2' >> s1))
+        s3 = State('s3')
+        s4 = State('s4')
+        p0.add_state(State('', s3 >> '1' >> s4 >> '2' >> s3))
+        h0 = DeepHistoryState(parent=p0)
+
+        r0 = State('r0')
+        r01 = ParallelState('r01', parent=r0, initial=True)
+        s5 = State('s5')
+        s6 = State('s6')
+        r01.add_state(State('', s5 >> '1' >> s6 >> '2' >> s5))
+        s7 = State('s7')
+        s8 = State('s8')
+        r01.add_state(State('', s7 >> '1' >> s8 >> '2' >> s7))
+        r02 = State('r02', parent=r0)
+        r01 >> '3' >> r02 >> '4' >> r01
+        h1 = DeepHistoryState(parent=r0)
+
+        r0 >> 'p' >> h0 
+        p0 >> 'r' >> h1
+
+        j = Junction()
+        r0 >> 'e' >> j << 'e' << p0
+
+        sm = fsm.StateMachine(p0, r0, j >> FinalState())
+        sm.start()
+        sm.join(.1)
+        self.assertEqual({'p0', 's1', 's3'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+        sm.post('r')
+        sm.join(.1)
+        self.assertEqual({'r0', 'r01', 's7', 's5'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('1')
+        sm.join(.1)
+        self.assertEqual({'r0', 'r01', 's6', 's8'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+        
+        sm.post('p')
+        sm.join(.1)
+        self.assertEqual({'p0', 's1', 's3'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('1')
+        sm.join(.1)
+        self.assertEqual({'p0', 's2', 's4'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('r')
+        sm.join(.1)
+        self.assertEqual({'r0', 'r01', 's6', 's8'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('3')
+        sm.join(.1)
+        self.assertEqual({'r0', 'r02'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('p')
+        sm.join(.1)
+        self.assertEqual({'p0', 's2', 's4'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('r')
+        sm.join(.1)
+        self.assertEqual({'r0', 'r02'},
+                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+
+        sm.post('e')
+        sm.join(1)
+
+        self.assertTrue(sm._terminated)
 
 # vim:expandtab:sw=4:sts=4

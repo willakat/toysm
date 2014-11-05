@@ -14,7 +14,8 @@ import subprocess
 from threading import Thread
 import sys
 
-from toysm.core import State, ParallelState, InitialState, Transition
+from toysm.core import State, ParallelState, InitialState, Transition, \
+                       DeepHistoryState
 
 from toysm.public import public
 
@@ -266,7 +267,8 @@ class StateMachine:
 
         def write_node(stream, state, transitions=None):
             transitions.extend(state.transitions)
-            if state.parent and isinstance(state.parent, ParallelState):
+            if state.parent and not isinstance(state, DeepHistoryState) \
+               and isinstance(state.parent, ParallelState):
                 attrs = dot_attrs(state, shape='box', style='dashed')
             else:
                 attrs = dot_attrs(state)

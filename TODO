@@ -13,7 +13,7 @@ x python2 issues:
   like the Trace used in the test classes.
   => for now only a Logger is defined (TBD if this is sufficient)
 - threaded state
-~ history states
+x history states
   => DeepHistory not done yet
 x s1>'x'>s2 doesn't work because it translates to s1 > 'x' and 'x'>s2...
   whereas (s1 > 'x') > s2 works and so does s1 > ('x' > s2) !!!!
