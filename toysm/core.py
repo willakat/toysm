@@ -449,7 +449,8 @@ class DeepHistoryState(HistoryState):
     def _enter_actions(self, sm):
         #pylint: disable=protected-access
         if self._saved_state:
-            for (s, saved) in self._saved_state:
+            self.parent.restore_state(self._saved_state[0][1])
+            for (s, saved) in self._saved_state[1:]:
                 s._enter(sm)
                 s.restore_state(saved)
 

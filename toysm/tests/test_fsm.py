@@ -24,7 +24,7 @@ class Trace:
             i = 0
             j = i + 1 if strict else len(cls.evt_log)
             for e in seq:
-                i = cls.evt_log.index(e, i)
+                i = cls.evt_log.index(e, i, j) + 1
                 if strict:
                     j = i + 1
             return True
@@ -639,5 +639,62 @@ class TestFSM(unittest.TestCase):
         sm.join(1)
 
         self.assertTrue(sm._terminated)
+
+    def test_deep_history2(self):
+        '''Test State Entry/Exit when context is restored by a deep history state.'''
+        s1 = State('s1')
+        s11 = State('s11', parent=s1, initial=True)
+        s111 = State('s111', parent=s11, initial=True)
+        s112 = State('s112', parent=s11)
+        s12 = State('s12', parent=s1)
+        s121 = State('s121', parent=s12, initial=True)
+        s122 = State('s122', parent=s12)
+        s111 >> 'a' >> s112 >> 'b' >> s121 >> 'c' >> s122 >> 'd' >> s111
+
+        s2 = State('s2')
+        h = DeepHistoryState(parent=s1)
+        s2 >> '1' >> h
+        s1 >> '2' >> s2
+
+        fs = FinalState()
+        s1 >> 'e' >> fs << 'e' << s2
+
+        trace((s1,s11,s111,s112,s12,s121,s122,s2), transitions=False)
+
+        sm = fsm.StateMachine(s1, s2, fs)
+        sm.start()
+
+        sm.post('a', '2', '1', 'b', '2', '1', 'e')
+        sm.join(1)
+        self.assertTrue(Trace.contains(
+            [ (s1,  'entry'),
+              (s11, 'entry'),
+              (s111,'entry'),
+              (s111,'exit'),    #a
+              (s112,'entry'),
+              (s112,'exit'),    #2
+              (s11, 'exit'),
+              (s1,  'exit'),
+              (s2,  'entry'),
+              (s2,  'exit'),    #1
+              (s1,  'entry'),
+              (s11, 'entry'),
+              (s112,'entry'),
+              (s112,'exit'),    #b
+              (s11, 'exit'),
+              (s12, 'entry'),
+              (s121,'entry'),
+              (s121,'exit'),    #2
+              (s12, 'exit'),
+              (s1,  'exit'),
+              (s2,  'entry'),
+              (s2,  'exit'),    #1
+              (s1,  'entry'),
+              (s12, 'entry'),
+              (s121,'entry'),
+              (s121,'exit'),    #e
+              (s12, 'exit'),
+              (s1,  'exit'),
+              ], strict=True))
 
 # vim:expandtab:sw=4:sts=4
