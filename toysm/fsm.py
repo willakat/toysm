@@ -11,7 +11,7 @@ except ImportError:
 import sched
 import time
 import subprocess
-from threading import Thread
+from threading import Thread, Event
 import sys
 
 from toysm.core import State, ParallelState, InitialState, Transition, \
@@ -55,7 +55,7 @@ def dot_attrs(obj, **overrides):
 
 
 @public
-class StateMachine:
+class StateMachine(object):
     '''StateMachine .... think of something smart to put here ;-).'''
     MAX_STOP_WAIT = .1
 
@@ -80,6 +80,7 @@ class StateMachine:
             self._v3sched = True
         self._terminated = False
         self._thread = None
+        self._settled = Event()
 
     def start(self):
         '''Starts the StateMachine.'''
@@ -92,12 +93,23 @@ class StateMachine:
         self._thread.start()
 
     def join(self, *args):
-        '''Joins the StateMachine internal thread.
-           The method will return once the StateMachine has terminated.
+        '''Joins the StateMachine internal thread. -> bool
+           The method will return True once the StateMachine has terminated.
+           If a timeout is provided, and the thread doesn't finish
+           before this timeout expires, the method returns False.
         '''
         t = self._thread
         if t is not None:
             t.join(*args)
+        return not t.isAlive()
+
+    def settle(self, timeout):
+        '''Returns once the SM has finished all available input events.
+           I.e. it is in a 'stable' state (until new events are posted
+           naturally).
+        '''
+        settled = self._settled.wait(timeout)
+        return settled
 
     def pause(self):
         '''Request the StateMachine to pause.'''
@@ -110,6 +122,7 @@ class StateMachine:
 
     def post(self, *evts):
         '''Adds an event to the State Machine's input processing queue.'''
+        self._settled.clear()
         for e in evts:
             self._event_queue.put(e)
 
@@ -171,7 +184,7 @@ class StateMachine:
                 self.stop() # top level region completed.
 
     def _process_next_event(self, t_max=None):
-        '''Process events posted to the SM until a specified time.'''
+        '''Process one event posted to the SM until a specified time.'''
         while not self._terminated:
             try:
                 if t_max:
@@ -182,7 +195,18 @@ class StateMachine:
                         delay = min(t_max - t, self.MAX_STOP_WAIT)
                 else:
                     delay = self.MAX_STOP_WAIT
-                evt = self._event_queue.get(True, delay)
+                try:
+                    # Non-blocking call, serves to both
+                    # check if the queue is empty and
+                    # to get the first element if not
+                    evt = self._event_queue.get(False)
+                except queue.Empty:
+                    # if the queue is empty, the StateMachine
+                    # is considered to have settled, and
+                    # we wait (up to delay) for an event
+                    # to be posted.
+                    self._settled.set()
+                    evt = self._event_queue.get(True, delay)
                 self._step(evt)
                 break
             except queue.Empty:

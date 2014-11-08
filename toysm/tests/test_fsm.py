@@ -9,7 +9,6 @@ LOG_LEVEL = logging.INFO
 logging.basicConfig(level=LOG_LEVEL)
 
 from toysm import *
-import toysm as fsm
 
 class Trace:
     evt_log = []
@@ -56,10 +55,10 @@ def trace(elt, transitions=True):
         Trace.add(elt, msg)
 
     for e in elt:
-        if isinstance(e, fsm.State):
+        if isinstance(e, State):
             e.add_hook('entry', h, msg='entry')
             e.add_hook('exit', h, msg='exit')
-            if transitions and isinstance(e, fsm.State):
+            if transitions and isinstance(e, State):
                 trace(tuple(e.transitions), transitions=False)
         else:
             e.add_hook(lambda sm,t,evt: Trace.add(t, 'action'))
@@ -75,10 +74,10 @@ class TestFSM(unittest.TestCase):
            /  \
           s2  s3
         '''
-        s1 = fsm.State()
-        s2 = fsm.State(parent=s1, initial=True)
-        s3 = fsm.State(parent=s1)
-        sm = fsm.StateMachine(s1)
+        s1 = State()
+        s2 = State(parent=s1, initial=True)
+        s3 = State(parent=s1)
+        sm = StateMachine(s1)
         sm._assign_depth()
 
         self.assertEqual(([s1],[s1, s3]), sm._lca(s1, s3))
@@ -96,18 +95,18 @@ class TestFSM(unittest.TestCase):
               /
              s7
         '''
-        s1 = fsm.State()
+        s1 = State()
         
-        s2 = fsm.State(parent=s1, initial=True)
-        s3 = fsm.State(parent=s2, initial=True)
-        s4 = fsm.State(parent=s2)
+        s2 = State(parent=s1, initial=True)
+        s3 = State(parent=s2, initial=True)
+        s4 = State(parent=s2)
 
-        s5 = fsm.State(parent=s1)
-        s6 = fsm.State(parent=s5, initial=True)
-        s7 = fsm.State(parent=s6, initial=True)
-        s8 = fsm.State(parent=s5)
+        s5 = State(parent=s1)
+        s6 = State(parent=s5, initial=True)
+        s7 = State(parent=s6, initial=True)
+        s8 = State(parent=s5)
 
-        sm = fsm.StateMachine(s1)
+        sm = StateMachine(s1)
         sm._assign_depth()
 
         self.assertEqual(([s3,s2,s1],[s1, s5, s6, s7]), sm._lca(s3, s7))
@@ -116,11 +115,11 @@ class TestFSM(unittest.TestCase):
 
 
     def test_simple(self):
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2')
-        fs = fsm.FinalState()
+        s1 = State('s1')
+        s2 = State('s2')
+        fs = FinalState()
         
-        sm = fsm.StateMachine(s1, s2, fs)
+        sm = StateMachine(s1, s2, fs)
 
         s1 >> 'a' >> s2 >> 'b'>> fs
 
@@ -129,7 +128,7 @@ class TestFSM(unittest.TestCase):
         sm.start()
         sm.post('a')
         sm.post('b')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [(s1, 'entry'), 
@@ -147,26 +146,26 @@ class TestFSM(unittest.TestCase):
       s3   s4    s6
         '''
 
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2', parent=s1, initial=True)
-        s3 = fsm.State('s3', parent=s2, initial=True)
-        s4 = fsm.State('s4', parent=s2)
+        s1 = State('s1')
+        s2 = State('s2', parent=s1, initial=True)
+        s3 = State('s3', parent=s2, initial=True)
+        s4 = State('s4', parent=s2)
 
         s3 >> 'a' >> s4
 
-        s5 = fsm.State('s5', parent=s1)
-        s6 = fsm.State('s6', parent=s5)
+        s5 = State('s5', parent=s1)
+        s6 = State('s6', parent=s5)
 
-        s4 >> 'b' >> s6 >> 'c' >> fsm.FinalState(parent=s5)
-        s5 >> fsm.FinalState(parent=s1)
+        s4 >> 'b' >> s6 >> 'c' >> FinalState(parent=s5)
+        s5 >> FinalState(parent=s1)
 
-        sm = fsm.StateMachine(s1)
+        sm = StateMachine(s1)
 
         trace((s1, s2, s3, s4, s5, s6))
 
         sm.start()
         sm.post('a', 'b', 'c')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -191,26 +190,26 @@ class TestFSM(unittest.TestCase):
         s3->s4
         s2->s6
         '''
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2', parent=s1, initial=True)
-        s3 = fsm.State('s3', parent=s2, initial=True)
-        s4 = fsm.State('s4', parent=s2)
+        s1 = State('s1')
+        s2 = State('s2', parent=s1, initial=True)
+        s3 = State('s3', parent=s2, initial=True)
+        s4 = State('s4', parent=s2)
 
         s3 >> 'a' >> s4
 
-        s5 = fsm.State('s5', parent=s1)
-        s6 = fsm.State('s6', parent=s5, initial=True)
+        s5 = State('s5', parent=s1)
+        s6 = State('s6', parent=s5, initial=True)
 
         s2 >> 'b' >> s5
-        s5 >> 'c' >> fsm.FinalState(parent=s1)
+        s5 >> 'c' >> FinalState(parent=s1)
 
-        sm = fsm.StateMachine(s1)
+        sm = StateMachine(s1)
 
         trace((s1, s2, s3, s4, s5, s6))
 
         sm.start()
         sm.post('a', 'b', 'c')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -228,7 +227,7 @@ class TestFSM(unittest.TestCase):
     def test_transition_to_pseudostate(self):
         value = [0]
 
-        class MyTransition(fsm.Transition):
+        class MyTransition(Transition):
             def __init__(self, value):
                 super(MyTransition, self).__init__()
                 self.value = value
@@ -237,24 +236,24 @@ class TestFSM(unittest.TestCase):
             def do_action(self, sm, evt):
                 value[0] += 1
 
-        s1 = fsm.State('s1')
-        s1 >> fsm.EqualsTransition('0', kind=fsm.Transition.EXTERNAL)
-        s2 = fsm.State('s2', parent=s1, initial=True)
-        j = fsm.Junction(parent=s1)
-        s3 = fsm.State('s3', parent=s1)
-        s4 = fsm.State('s4', parent=s1)
+        s1 = State('s1')
+        s1 >> EqualsTransition('0', kind=Transition.EXTERNAL)
+        s2 = State('s2', parent=s1, initial=True)
+        j = Junction(parent=s1)
+        s3 = State('s3', parent=s1)
+        s4 = State('s4', parent=s1)
 
         s2 >> 'a' >> j >> MyTransition(0) >> s3
         j >> MyTransition(1) >> s4
-        j >> MyTransition(2) >> fsm.FinalState(parent=s1)
+        j >> MyTransition(2) >> FinalState(parent=s1)
 
         trace((s1, s2, s3, s4, j))
 
-        sm = fsm.StateMachine(s1)
+        sm = StateMachine(s1)
 
         sm.start()
         sm.post('a', '0', 'a', '0', 'a')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -281,12 +280,12 @@ class TestFSM(unittest.TestCase):
 
 
     def test_timeout(self):
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2')
-        fs = fsm.FinalState()
+        s1 = State('s1')
+        s2 = State('s2')
+        fs = FinalState()
 
-        s1 >> fsm.Timeout(1) >> s2 >> fsm.Timeout(1) >> fs
-        sm = fsm.StateMachine(s1, s2, fs)
+        s1 >> Timeout(1) >> s2 >> Timeout(1) >> fs
+        sm = StateMachine(s1, s2, fs)
 
         trace((s1, s2, fs))
 
@@ -302,14 +301,14 @@ class TestFSM(unittest.TestCase):
 
 
     def test_timeout_cancel(self):
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2')
-        fs = fsm.FinalState()
+        s1 = State('s1')
+        s2 = State('s2')
+        fs = FinalState()
 
-        s1 >> fsm.Timeout(1) >> s2 >> fsm.Timeout(1) >> fs
+        s1 >> Timeout(1) >> s2 >> Timeout(1) >> fs
         s1 >> 'a' >> fs
 
-        sm = fsm.StateMachine(s1, s2, fs)
+        sm = StateMachine(s1, s2, fs)
 
         trace((s1, s2, fs))
 
@@ -318,29 +317,30 @@ class TestFSM(unittest.TestCase):
         time.sleep(.5)
         sm.post('a')
         
-        sm.join(1)
+        self.assertTrue(sm.join(1))
         self.assertFalse(Trace.contains([(s2, 'entry')], show_on_fail=False))
         self.assertTrue(Trace.contains([(s1, 'exit'), (fs, 'entry')]))
 
     def test_parallel_state(self):
-        p = fsm.ParallelState()
-        s1 = fsm.State('s1', parent=p) # first region
-        s2 = fsm.State('s2', parent=p)
+        p = ParallelState()
+        s1 = State('s1', parent=p) # first region
+        s2 = State('s2', parent=p)
 
-        s11 = fsm.State('s11', parent=s1, initial=True)
-        s12 = fsm.State('s12', parent=s1)
-        s11 >> 'a' >> s12 >> 'b' >> fsm.FinalState(parent=s1)
+        s11 = State('s11', parent=s1, initial=True)
+        s12 = State('s12', parent=s1)
+        s11 >> 'a' >> s12 >> 'b' >> FinalState(parent=s1)
 
-        s21 = fsm.State('s21', parent=s2, initial=True)
-        s21 >> 'a' >> fsm.FinalState(parent=s2)
+        s21 = State('s21', parent=s2, initial=True)
+        s21 >> 'a' >> FinalState(parent=s2)
 
         trace((p, s1, s11, s12, s2, s21))
 
-        sm = fsm.StateMachine(p)
+        sm = StateMachine(p)
         sm.start()
 
         sm.post('a')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
+        #self.assertTrue(sm.settle(.1))
         self.assertTrue(Trace.contains([
             (p, 'entry'), 
             (s1, 'entry'), 
@@ -356,7 +356,7 @@ class TestFSM(unittest.TestCase):
         self.assertFalse(Trace.contains([(s2, 'exit')], show_on_fail=False))
 
         sm.post('b')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
         self.assertTrue(Trace.contains([(s12, 'exit'), (s1, 'exit')]))
         self.assertTrue(Trace.contains([(s2, 'exit')]))
 
@@ -364,13 +364,13 @@ class TestFSM(unittest.TestCase):
         '''Check basic history state recovery when parent state is entered.
            Also show that transition to 'unitialized' history state follows
            standard state entry (to initial substate).'''
-        s1 = fsm.State('s1') 
-        s2 = fsm.State('s2')
-        h = fsm.HistoryState(parent=s1)
-        s11 = fsm.State('s11', parent=s1, initial=True)
-        s12 = fsm.State('s12', parent=s1)
-        s13 = fsm.State('s13', parent=s1)
-        fs = fsm.FinalState()
+        s1 = State('s1') 
+        s2 = State('s2')
+        h = HistoryState(parent=s1)
+        s11 = State('s11', parent=s1, initial=True)
+        s12 = State('s12', parent=s1)
+        s13 = State('s13', parent=s1)
+        fs = FinalState()
 
         s2 >> 'a' >> h
         s11 >> 'b' >> s12 >> 'c' >> s13 >> 'd' >> s11
@@ -378,12 +378,12 @@ class TestFSM(unittest.TestCase):
         s2 >> 'f' >> fs
 
         trace((s1, s2, s11, s12, s13, fs))
-        sm = fsm.StateMachine(s2, s1, fs)
+        sm = StateMachine(s2, s1, fs)
         sm.start()
 
         sm.post('a', 'b', 'c', 'd', 'b', 'e', 'a', 'e', 'f')
 
-        sm.join(1)
+        self.assertTrue(sm.join(1))
         
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -411,24 +411,24 @@ class TestFSM(unittest.TestCase):
            it has a transition defined.
         '''
 
-        s1 = fsm.State('s1') 
-        s2 = fsm.State('s2')
-        h = fsm.HistoryState(parent=s1)
-        s11 = fsm.State('s11', parent=s1, initial=True)
-        s12 = fsm.State('s12', parent=s1)
-        fs = fsm.FinalState()
+        s1 = State('s1') 
+        s2 = State('s2')
+        h = HistoryState(parent=s1)
+        s11 = State('s11', parent=s1, initial=True)
+        s12 = State('s12', parent=s1)
+        fs = FinalState()
 
         h >> s12
         s2 >> 'a' >> h
         s1 >> 'b' >> s2 >> 'c' >> fs
 
         trace((s1, s2, s11, s12, fs))
-        sm = fsm.StateMachine(s2, s1, fs)
+        sm = StateMachine(s2, s1, fs)
         sm.start()
 
         sm.post('a', 'b', 'c')
 
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -444,23 +444,23 @@ class TestFSM(unittest.TestCase):
     def test_internal_transition(self):
         '''Check behavior of INTERNAL transitions.'''
 
-        s1 = fsm.State('s1')
-        s2 = fsm.State('s2', parent=s1, initial=True)
-        s3 = fsm.State('s3', parent=s1)
+        s1 = State('s1')
+        s2 = State('s2', parent=s1, initial=True)
+        s3 = State('s3', parent=s1)
 
         s2 >> 'a' >> s3 >> 'b' >> s2
-        t = fsm.EqualsTransition('c', kind=fsm.Transition.INTERNAL, source=s1)
-        s1 >> 'd' >> fsm.FinalState(parent=s1)
+        t = EqualsTransition('c', kind=Transition.INTERNAL, source=s1)
+        s1 >> 'd' >> FinalState(parent=s1)
 
         trace((s1, s2, s3, t))
 
-        sm = fsm.StateMachine(s1)
+        sm = StateMachine(s1)
 
         sm.start()
 
         sm.post('c', 'a', 'c', 'b', 'd')
 
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),
@@ -475,21 +475,21 @@ class TestFSM(unittest.TestCase):
     def test_terminate_state(self):
         '''Check behavior of transition to TerminateState.'''
 
-        s1 = fsm.State('s1', initial=True)
-        s2 = fsm.State('s2', parent=s1, initial=True)
-        s3 = fsm.State('s3')
-        fs = fsm.FinalState()
-        ts = fsm.TerminateState(parent=s1)
+        s1 = State('s1', initial=True)
+        s2 = State('s2', parent=s1, initial=True)
+        s3 = State('s3')
+        fs = FinalState()
+        ts = TerminateState(parent=s1)
 
         s1 >> 'a' >> s3 >> 'b' >> fs
         s2 >> 'c' >> ts
 
         trace((s1, s2, s3, fs, ts))
-        sm = fsm.StateMachine(s1, s3, fs)
+        sm = StateMachine(s1, s3, fs)
 
         sm.start()
         sm.post('c', 'a', 'b')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(Trace.contains(
             [ (s1, 'entry'),
@@ -505,65 +505,65 @@ class TestFSM(unittest.TestCase):
 
 
     def test_builder(self):
-        r = fsm.State('root', 
-                      fsm.State('s1') >> 'a' 
-                      >> fsm.State('s2', fsm.State('s21') >> 'b' 
-                                         >> fsm.State('s22')) 
-                      >> 'c' >> fsm.FinalState('fs'))
-        sm = fsm.StateMachine(r)
+        r = State('root', 
+                      State('s1') >> 'a' 
+                      >> State('s2', State('s21') >> 'b' 
+                                         >> State('s22')) 
+                      >> 'c' >> FinalState('fs'))
+        sm = StateMachine(r)
         self.assertEqual({'s1', 's2', 'fs'}, {s.name for s in sm._cstate.children})
         self.assertEqual({'s21', 's22'}, {s.name for s2 in sm._cstate.children if s2.name == 's2' for s in s2.children})
 
     def test_builder2(self):
-        sm = fsm.StateMachine(
-            fsm.State('s1') >> fsm.State('s2') >> fsm.FinalState('fs'))
+        sm = StateMachine(
+            State('s1') >> State('s2') >> FinalState('fs'))
         self.assertEqual({'s1', 's2', 'fs'}, {s.name for s in sm._cstate.children})
 
     def test_builder3(self):
-        s1 = fsm.State('s1')
-        b1 = fsm.State('s2') << s1 << fsm.InitialState()
+        s1 = State('s1')
+        b1 = State('s2') << s1 << InitialState()
 
-        s3 = fsm.State('s3')
-        b2 = fsm.State('s4') >> s3
+        s3 = State('s3')
+        b2 = State('s4') >> s3
 
         s1 >> s3
 
-        sm = fsm.StateMachine(b2 >> b1)
+        sm = StateMachine(b2 >> b1)
 
     def test_get_active_states(self):
-        s0 = fsm.ParallelState('root')
-        s11 = fsm.State('s11', fsm.State('s111') >> 'c' >> fsm.State('s112'))
-        s12 = fsm.State('s12')
-        s21 = fsm.State('s21', fsm.State('s211') >> 'c' >> fsm.State('s212'))
-        s22 = fsm.State('s22')
-        s1 = fsm.State('s1', 
-                       s11 >> 'a' >> s12 >> 'b' >> s11 >> 'd' >> fsm.FinalState(),
+        s0 = ParallelState('root')
+        s11 = State('s11', State('s111') >> 'c' >> State('s112'))
+        s12 = State('s12')
+        s21 = State('s21', State('s211') >> 'c' >> State('s212'))
+        s22 = State('s22')
+        s1 = State('s1', 
+                       s11 >> 'a' >> s12 >> 'b' >> s11 >> 'd' >> FinalState(),
                        parent=s0) 
-        s2 = fsm.State('s2',
-                       s21 >> 'a' >> s22 >> 'b' >> s21 >> 'd' >> fsm.FinalState(),
+        s2 = State('s2',
+                       s21 >> 'a' >> s22 >> 'b' >> s21 >> 'd' >> FinalState(),
                        parent=s0) 
 
-        sm = fsm.StateMachine(s0)
+        sm = StateMachine(s0)
 
         sm.start()
         sm.post('a')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'s12', 's22', 's1', 'root', 's2'},
                          {s.name for (s,_) in s0.get_active_states()})
         sm.post('b')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'s11', 's21', 's111', 's211', 's1', 'root', 's2'},
                          {s.name for (s,_) in s0.get_active_states()})
         sm.post('c')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'s11', 's21', 's112', 's212', 's1', 'root', 's2'},
                          {s.name for (s,_) in s0.get_active_states()})
         sm.post('d')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
     def test_deep_history(self):
         '''Check deep history state directly inside Parallel State.'''
-        p0 = fsm.ParallelState('p0')
+        p0 = ParallelState('p0')
         s1 = State('s1')
         s2 = State('s2')
         p0.add_state(State('', s1 >> '1' >> s2 >> '2' >> s1))
@@ -590,53 +590,53 @@ class TestFSM(unittest.TestCase):
         j = Junction()
         r0 >> 'e' >> j << 'e' << p0
 
-        sm = fsm.StateMachine(p0, r0, j >> FinalState())
+        sm = StateMachine(p0, r0, j >> FinalState())
         sm.start()
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's1', 's3'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
         sm.post('r')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's7', 's5'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('1')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's6', 's8'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
         
         sm.post('p')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's1', 's3'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('1')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's2', 's4'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('r')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's6', 's8'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('3')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r02'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('p')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's2', 's4'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('r')
-        sm.join(.1)
+        self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r02'},
                          {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
 
         sm.post('e')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
 
         self.assertTrue(sm._terminated)
 
@@ -661,11 +661,11 @@ class TestFSM(unittest.TestCase):
 
         trace((s1,s11,s111,s112,s12,s121,s122,s2), transitions=False)
 
-        sm = fsm.StateMachine(s1, s2, fs)
+        sm = StateMachine(s1, s2, fs)
         sm.start()
 
         sm.post('a', '2', '1', 'b', '2', '1', 'e')
-        sm.join(1)
+        self.assertTrue(sm.join(1))
         self.assertTrue(Trace.contains(
             [ (s1,  'entry'),
               (s11, 'entry'),

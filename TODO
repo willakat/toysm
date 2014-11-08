@@ -66,4 +66,6 @@ x remove DotMixin => functionality isn't used, replace it with a function
 x break fsm.py up into several files: sm.py transition.py state.py
   => core.py contains transition + state (dificult to avoid circular dependencies
   otherwise)
+x join should return a boolean indicating whether or not the tread stopped
+x add a sm.settle method to wait until the event queue is empty
 
