@@ -336,11 +336,11 @@ class TestFSM(unittest.TestCase):
         trace((p, s1, s11, s12, s2, s21))
 
         sm = StateMachine(p)
+        #sm.graph()
         sm.start()
 
         sm.post('a')
         self.assertTrue(sm.settle(.1))
-        #self.assertTrue(sm.settle(.1))
         self.assertTrue(Trace.contains([
             (p, 'entry'), 
             (s1, 'entry'), 

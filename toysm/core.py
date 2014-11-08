@@ -624,11 +624,11 @@ class Transition(with_metaclass(TransitionMeta)):
     _transition_cls = []    # list of known subclasses
 
     dot = {
-        'label': lambda t: t.desc or '',
+        'label': lambda t: t.desc,
     }
 
     def __init__(self, trigger=None, action=None, source=None, target=None,
-                 kind=LOCAL, desc=None):
+                 kind=LOCAL, desc=''):
         self.trigger = trigger
         self.action = action
         self.kind = kind
@@ -671,14 +671,6 @@ class Transition(with_metaclass(TransitionMeta)):
         '''Add a hook that will be called when this transition is followed.'''
         self.hooks.append((hook, args, kargs))
 
-    #def __rshift__(self, other):
-    #    other.accept_transition(self)
-    #    return other
-
-    #def __lshift__(self, other):
-    #    other.add_transition(self)
-    #    return other
-
     def __str__(self):
         return '%s-%s>%s' % (self.source,
                              "[%s]-" % self.desc if self.desc else '',
@@ -705,19 +697,14 @@ class EqualsTransition(Transition):
     '''Simple Transition type that checks events against a
        pre-defined value.
     '''
-    dot = {
-        'label': lambda t: t.value,
-    }
-
     @classmethod
     def ctor_accepts(cls, value, **_):
         if not isclass(value):
             return True
 
-    def __init__(self, evt_value, **kargs):
-        if 'desc' not in kargs:
-            kargs['desc'] = evt_value
-        super(EqualsTransition, self).__init__(**kargs)
+    def __init__(self, evt_value, desc=None, **kargs):
+        desc = '%s' % evt_value + ('/%s' % desc) if desc else ''
+        super(EqualsTransition, self).__init__(desc=desc, **kargs)
         self.value = evt_value
 
     def is_triggered(self, evt):
@@ -729,12 +716,11 @@ class Timeout(Transition):
     '''Transition that will trigger if the source state isn't exited
        within a certain delay.
     '''
-    dot = {
-        'label': lambda t: 'after (%ss)' % t.delay,
-    }
 
-    def __init__(self, delay, **kargs):
-        super(Timeout, self).__init__(kind=Transition.EXTERNAL, **kargs)
+    def __init__(self, delay, desc=None, **kargs):
+        desc = 'after (%ss)' % delay + ('/%s' % desc) if desc else ''
+        super(Timeout, self).__init__(kind=Transition.EXTERNAL, desc=desc,
+                                      **kargs)
         self.delay = delay
         self._sched_id = None
         self._source = None
