@@ -1,12 +1,5 @@
-'''
-Provide a public decorator that adds symbols to a module's __all__
-list of exported symbols.
-
-Taken from: http://code.activestate.com/recipes/576993-public-decorator-adds-an-item-to-__all__/
-
-where it is licensed under the MIT license.
-'''
-
+################################################################################
+#
 # The MIT License (MIT)
 # 
 # Copyright (c) 2009 Sam Denton, Duncan Booth, Dave Angel
@@ -28,6 +21,17 @@ where it is licensed under the MIT license.
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
+#
+################################################################################
+
+'''
+Provide a public decorator that adds symbols to a module's __all__
+list of exported symbols.
+
+Taken from: http://code.activestate.com/recipes/576993-public-decorator-adds-an-item-to-__all__/
+
+where it is licensed under the MIT license.
+'''
 
 import sys
 
