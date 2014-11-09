@@ -681,7 +681,7 @@ class Transition(with_metaclass(TransitionMeta)):
     _transition_cls = []    # list of known subclasses
 
     dot = {
-        'label': lambda t: t.desc,
+        'label': lambda t: t.desc
     }
 
     def __init__(self, trigger=None, action=None, source=None, target=None,
@@ -762,7 +762,7 @@ class EqualsTransition(Transition):
             return True
 
     def __init__(self, evt_value, desc=None, **kargs):
-        desc = '%s' % evt_value + ('/%s' % desc) if desc else ''
+        desc = '%s' % evt_value + ('/%s' % desc if desc else '')
         super(EqualsTransition, self).__init__(desc=desc, **kargs)
         self.value = evt_value
 
@@ -777,7 +777,7 @@ class Timeout(Transition):
     '''
 
     def __init__(self, delay, desc=None, **kargs):
-        desc = 'after (%ss)' % delay + ('/%s' % desc) if desc else ''
+        desc = 'after (%ss)' % delay + ('/%s' % desc if desc else '')
         super(Timeout, self).__init__(kind=Transition.EXTERNAL, desc=desc,
                                       **kargs)
         self.delay = delay
