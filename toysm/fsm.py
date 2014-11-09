@@ -208,32 +208,39 @@ class StateMachine(object):
 
     def _process_next_event(self, t_max=None):
         '''Process one event posted to the SM until a specified time.'''
-        while not self._terminated:
-            try:
+        try:
+            # Non-blocking call, serves to both
+            # check if the queue is empty and
+            # to get the first element if not
+            evt = self._event_queue.get(False)
+        except queue.Empty:
+            # if the queue is empty, the StateMachine
+            # is considered to have settled, and
+            # we wait (up to delay) for an event
+            # to be posted.
+            self._settled.set()
+            while not self._terminated:
                 if t_max:
                     t = time.time()
                     if t >= t_max:
-                        break
+                        # No events received within allocated delay
+                        return
                     else:
                         delay = min(t_max - t, self.MAX_STOP_WAIT)
                 else:
                     delay = self.MAX_STOP_WAIT
                 try:
-                    # Non-blocking call, serves to both
-                    # check if the queue is empty and
-                    # to get the first element if not
-                    evt = self._event_queue.get(False)
-                except queue.Empty:
-                    # if the queue is empty, the StateMachine
-                    # is considered to have settled, and
-                    # we wait (up to delay) for an event
-                    # to be posted.
-                    self._settled.set()
                     evt = self._event_queue.get(True, delay)
-                self._step(evt)
-                break
-            except queue.Empty:
-                continue
+                    break
+                except queue.Empty:
+                    continue
+            else:
+                # SM terminated before any new events received
+                return
+        # New event available, process it.
+        assert evt
+        self._step(evt)
+
 
     def _loop(self):
         # assign dept to each state (to assist LCA calculation)
