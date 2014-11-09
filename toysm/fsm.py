@@ -66,6 +66,12 @@ def dot_attrs(obj, **overrides):
     else:
         d = obj.dot
     def resolve(item):
+        '''Resolves the value for a dot attribute, i.e.
+           if the item is a callable use its return
+           value.
+           Return value will be quoted, unless it
+           is a HTML-like label.
+        '''
         k, v = item
         if callable(v):
             v = v(obj)
@@ -243,6 +249,7 @@ class StateMachine(object):
 
 
     def _loop(self):
+        '''State Machine loop, called by the SM's thread'''
         # assign dept to each state (to assist LCA calculation)
         self._assign_depth()
 
@@ -275,6 +282,11 @@ class StateMachine(object):
         self._thread = None
 
     def _step(self, evt, transitions=None):
+        '''Make the StateMachine evovle according to the evt event.
+           If transitions is None, relevant transitions will
+           be determined based on the StateMachines current enabled
+           transitions for the given event.
+        '''
         LOG.debug('%s - processing event %r', self, evt)
         if transitions is None:
             transitions = self._cstate.get_enabled_transitions(evt)
@@ -320,6 +332,7 @@ class StateMachine(object):
         '''Generates a graph of the State Machine.'''
 
         def write_node(stream, state, transitions=None):
+            '''Writes a state's representation in dot format.'''
             transitions.extend(state.transitions)
             if state.parent and not isinstance(state, DeepHistoryState) \
                and isinstance(state.parent, ParallelState):
@@ -345,6 +358,11 @@ class StateMachine(object):
                 stream.write(_bytes('%s [%s]\n' % (id(state), attrs)))
 
         def find_endpoint_for(node):
+            '''Find a substate of a cluster node for the purpose
+               of setting a edge's head/tail.
+               This is linked to the fact that Graphviz doesn't
+               support a 'cluster' as the head/tail of an edge.
+            '''
             if node.children:
                 if node.initial:
                     node = node.initial

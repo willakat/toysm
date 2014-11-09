@@ -123,6 +123,7 @@ class State(object):
         pass
 
     def _call_hooks(self, sm, kind):
+        '''Calls the hooks registered for 'kind'.'''
         for hook in self.hooks[kind]:
             h, args, kargs = hook
             h(sm, self, *args, **kargs)
@@ -146,6 +147,11 @@ class State(object):
         self._call_hooks(sm, 'post_entry')
 
     def _enter_actions(self, sm):
+        '''Performs class specific actions on state entry.
+           It is called by the _enter method.
+           This method is intended to be overriden for state
+           specificities.
+        '''
         if not self.children:
             sm.post_completion(self)
 
@@ -157,6 +163,10 @@ class State(object):
         pass
 
     def _exit(self, sm):
+        '''Called when the StateMachine leaves this state.
+           Not intended to be overriden, subclass specific
+           behavior should be implemented in _exit_actions.
+        '''
         self._call_hooks(sm, 'pre_exit')
         self._exit_actions(sm)
         self.on_exit(sm)
@@ -164,6 +174,9 @@ class State(object):
         LOG.debug("%s - Exiting state", self)
 
     def _exit_actions(self, sm):
+        '''Perform custom actions for a state when the
+           StateMachine moves out of this state.
+        '''
         if self.active_substate:
             self.active_substate._exit(sm)  # pylint: disable=protected-access
             self.active_substate = None
@@ -182,9 +195,11 @@ class State(object):
         t.target = self
 
     def accept_parent(self, parent, initial):
+        '''Called when this state's parent is set.'''
         pass
 
     def accept_substate(self, state, initial):
+        '''Called when a substate is added to the state.'''
         pass
 
     def add_state(self, sexp, initial=False):
@@ -239,6 +254,10 @@ class State(object):
                 yield i
 
     def restore_state(self, saved):
+        '''Restore the State to a previously saved condition.
+           This saved condition can be obtained by a call
+           to State.get_active_states.
+        '''
         self.active_substate = saved
 
     def __str__(self):
@@ -428,6 +447,7 @@ class HistoryState(PseudoState):
         parent.add_hook('pre_exit', self.save_state)
 
     def save_state(self, *_):
+        '''Callback when the HistoryState's parent state is exited.'''
         self._saved_state = self.parent.active_substate
 
     def get_entry_transitions(self):
@@ -446,6 +466,11 @@ class HistoryState(PseudoState):
 
 @public
 class DeepHistoryState(HistoryState):
+    '''PseudoState that keeps is able to restore its parent state
+       to the way it was when it was previously exited. This
+       history includes the state of all the recursive substates
+       of the parent.
+    '''
     dot = HistoryState.dot.copy()
     dot['label'] = 'H*'
 
@@ -479,6 +504,7 @@ class DeepHistoryState(HistoryState):
 
 
 class _SinkState(PseudoState):
+    '''PseudoState that forbids adding egress transitions.'''
     transition_terminal = True
 
     def add_transition(self, t):
@@ -539,6 +565,7 @@ class _StateExpression(object):
         self.head = self.tail = self.initial = state
 
     def set_parent(self, state, initial=False):
+        '''Set the parent state of all states in the expression.'''
         if isinstance(self.tail, Transition) \
             or isinstance(self.head, Transition):
             raise IllFormedException('State expressions must not begin/end with'
@@ -547,6 +574,7 @@ class _StateExpression(object):
             s.set_parent(state, initial=initial and self.initial is s)
 
     def add_state(self, state):
+        '''Add a state to the expression.'''
         if state not in self.states:
             self.states.add(state)
             if isinstance(state, InitialState):
@@ -556,7 +584,13 @@ class _StateExpression(object):
                 self.initial = state
 
     def connect(self, a, b):
+        '''Connects a and b where a or b can be either a State or
+           a Transition.
+        '''
         def prep(e):
+            '''Take appropriate action based on e's type
+               for the connection to be performed.
+            '''
             if isinstance(e, State):
                 self.add_state(e)
             else:
@@ -680,6 +714,7 @@ class Transition(with_metaclass(TransitionMeta)):
             return evt is None # Completion event
 
     def _action(self, sm, evt):
+        '''Called when the StateMachine follows this transition.'''
         for hook in self.hooks:
             h, args, kargs = hook
             h(sm, self, evt, *args, **kargs)
@@ -722,6 +757,7 @@ class EqualsTransition(Transition):
     '''
     @classmethod
     def ctor_accepts(cls, value, **_):
+        '''Constructor accepts any value as long as it isn't a class.'''
         if not isclass(value):
             return True
 
@@ -750,6 +786,10 @@ class Timeout(Transition):
 
     @property
     def source(self):
+        '''Source of the transition is a property.
+           This allows the a hook to be placed on the
+           source state when it is set.
+        '''
         return self._source
 
     @source.setter
@@ -763,16 +803,26 @@ class Timeout(Transition):
         src.add_hook('exit', self._cancel)
 
     def _schedule(self, sm, _):
+        '''Enterring the source state causes a call to _timeout
+           to be schedule.
+        '''
         self._sched_id = \
             sm._sched.enter(                    # pylint: disable = W0212
                 self.delay, 10, self._timeout, [sm])
 
     def _cancel(self, sm, _):
+        '''Exiting the source state cancels the timer that was
+           started on entry.
+        '''
         if self._sched_id:
             sm._sched.cancel(self._sched_id)    # pylint: disable = W0212
             self._sched_id = None
 
     def _timeout(self, sm):
+        '''Called back when the timer expires, an event
+           is posted to the StateMachine that will trigger the
+           Timeout transition.
+        '''
         sm.post(self)
         self._sched_id = None
 
