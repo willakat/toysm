@@ -794,6 +794,9 @@ class Timeout(Transition):
 
     @source.setter
     def source(self, src):
+        '''Adds entry/exit hooks to the source of the transition
+           when it is set.
+        '''
         if src is None:
             return
         if isinstance(src, PseudoState):
