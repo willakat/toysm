@@ -34,7 +34,7 @@ SCAPY_COMPAT = sys.version_info.major < 3
 
 if SCAPY_COMPAT:
     from scapy.all import *
-    from toysm.ext.scapy_ext import *
+    from toysm.ext.scapy import *
 
 @unittest.skipIf(not SCAPY_COMPAT,
                  'Scapy is Python2 only, for now at least')

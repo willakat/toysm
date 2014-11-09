@@ -23,18 +23,24 @@
 
 # pylint: disable=invalid-name
 
+# Avoid attempting to reload the present module when import when 
+# accessing scapy or one of its submodules
+from __future__ import  absolute_import
+
+from inspect import isclass
+
+from scapy.packet import Packet, NoPayload
+#from scapy.pipetools import AutoSource
+
+from toysm import Transition, public
+from toysm.public import public
+
 '''Classes intended to simplify using ToySM with Scapy:
    - PacketTransition: allows defining transitions between States based
                        on events that are scapy Packet templates.
    - SMBox: A Scapy pipe box that uses the high/low inputs to post
    	    events to a state machine.
 '''
-
-from inspect import isclass
-from scapy.packet import Packet, NoPayload
-#from scapy.pipetools import AutoSource
-from toysm import Transition, public
-from toysm.public import public
 
 @public
 class ForbidPayload(Packet):
