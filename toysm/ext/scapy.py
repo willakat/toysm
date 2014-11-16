@@ -37,9 +37,17 @@ from __future__ import  absolute_import
 from inspect import isclass
 
 from scapy.packet import Packet, NoPayload
-#from scapy.pipetools import AutoSource
 
-from toysm import Transition, public
+try:
+    from scapy.pipetool import AutoSource
+    HAVE_PIPETOOL = True
+except ImportError:
+    from warnings import warn
+    warn('Scapy 2.2.0-dev or better is necessary for Pipetool integration',
+         ImportWarning)
+    HAVE_PIPETOOL = False
+
+from toysm import StateMachine, Transition, public
 from toysm.public import public
 
 @public
@@ -123,6 +131,8 @@ class PacketTransition(Transition):
                Ether()/IP(dst='1.2.3.4')/TCP()
     '''
 
+    dot = {'label': lambda t: t.desc.replace('<', r'\<').replace('>', r'\>')}
+
     @classmethod
     def ctor_accepts(cls, value, **_):
         '''Register constructor as supporting any Packet value.'''
@@ -134,42 +144,47 @@ class PacketTransition(Transition):
         self.template = template
 
     def is_triggered(self, evt):
-        return match_packet(self.template, evt)
+        return evt is not None and match_packet(self.template, evt)
 
 
-#@public
-#class SMBox(StateMachine, AutoSource):
-#    def __init__(self, *args, **kargs):
-#        StateMachine.__init__(self, *args, **kargs)
-#        AutoSource.__init__(self,
-#                            **{k:v for k,v in karg.items if k in {'name'}})
-#
-#    def push(self, msg):
-#        self.post(self.convert(msg))
-#
-#    def high_push(self, msg):
-#        self.post(self.high_convert(msg))
-#
-#    def convert(self, msg):
-#        '''Converts a message received on the low input into an
-#           event (to be posted to the SM).'''
-#        return msg
-#
-#    def high_convert(self, msg):
-#        '''Converts a message received on the high input into an
-#           event (to be posted to the SM).'''
-#        return msg
-#
-#    def send(self, msg):
-#        '''Publishes a message on the Box's low output.'''
-#        self._gen_data(msg)
-#
-#    def high_send(self, msg):
-#        '''Publishes a message on the Box's high output.'''
-#        self._gen_hight_data(msg)
-#
-#    def stop(self):
-#        StateMachine.stop(self)
-#        self.exhausted = True
+if HAVE_PIPETOOL:
+    @public
+    class SMBox(StateMachine, AutoSource):
+        def __init__(self, *args, **kargs):
+            StateMachine.__init__(self, *args, **kargs)
+            AutoSource.__init__(self, name=kargs.get('name'))
+
+        def push(self, msg):
+            self.post(self.convert(msg))
+
+        def high_push(self, msg):
+            self.post(self.high_convert(msg))
+
+        def convert(self, msg):
+            '''Converts a message received on the low input into an
+               event (to be posted to the SM).'''
+            return msg
+
+        def high_convert(self, msg):
+            '''Converts a message received on the high input into an
+               event (to be posted to the SM).'''
+            return msg
+
+        def send(self, msg):
+            '''Publishes a message on the Box's low output.'''
+            self._gen_data(msg)
+            #print('sent', repr(msg))
+
+        def high_send(self, msg):
+            '''Publishes a message on the Box's high output.'''
+            self._gen_high_data(msg)
+
+        def stop(self):
+            StateMachine.stop(self)
+            if not self.is_exhausted:
+                self.is_exhausted = True
+                # Force PipeEngine to wakeup this Source and 'notice'
+                # that it is exhausted
+                self._wake_up()
 
 # vim:expandtab:sw=4:sts=4
