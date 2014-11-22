@@ -51,7 +51,7 @@ class State(object):
     }
 
     def __init__(self, name=None, sexp=None, parent=None, initial=False,
-                 enter=None, exit=None):
+                 on_enter=None, on_exit=None):
         super(State, self).__init__()
         self.transitions = []
         self.dflt_transition = None
@@ -69,10 +69,10 @@ class State(object):
             self.set_parent(parent, initial=initial)
         if sexp:
             sexp.set_parent(self, initial=True)
-        if enter:
-            self.add_hook('pre_entry', enter)
-        if exit:
-            self.add_hook('post_exit', exit)
+        if on_enter:
+            self.add_hook('pre_entry', on_enter)
+        if on_exit:
+            self.add_hook('post_exit', on_exit)
 
     def get_enabled_transitions(self, evt):
         '''Return transitions from the state for the given event, or None
