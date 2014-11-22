@@ -208,7 +208,7 @@ class StateMachine(object):
             state = self._completed.pop()
             LOG.debug('%s - handling completion of %s', self, state)
             self._step(evt=None,
-                       transitions=state.get_enabled_transitions(None))
+                       transitions=state.get_enabled_transitions(self, None))
             if state.parent:
                 state.parent.child_completed(self, state)
             else:
@@ -258,7 +258,7 @@ class StateMachine(object):
 
         # perform entry into the root region/state
         self._cstate._enter(self)       # pylint: disable = W0212
-        _, entry_transitions = self._cstate.get_entry_transitions()
+        _, entry_transitions = self._cstate.get_entry_transitions(self)
         self._step(evt=None, transitions=entry_transitions)
 
         # loop should:
@@ -292,7 +292,7 @@ class StateMachine(object):
         '''
         LOG.debug('%s - processing event %r', self, evt)
         if transitions is None:
-            transitions = self._cstate.get_enabled_transitions(evt)
+            transitions = self._cstate.get_enabled_transitions(self, evt)
         while transitions:
             if LOG.isEnabledFor(logging.DEBUG):
                 LOG.debug("Transitions to be processed: %s",

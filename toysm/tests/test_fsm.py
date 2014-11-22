@@ -254,7 +254,7 @@ class TestFSM(unittest.TestCase):
             def __init__(self, value):
                 super(MyTransition, self).__init__()
                 self.value = value
-            def is_triggered(self, evt):
+            def is_triggered(self, sm, evt):
                 return value[0] == self.value
             def do_action(self, sm, evt):
                 value[0] += 1
@@ -614,6 +614,7 @@ class TestFSM(unittest.TestCase):
         r0 >> 'e' >> j << 'e' << p0
 
         sm = StateMachine(p0, r0, j >> FinalState())
+        #sm.graph(prg='cat')
         sm.start()
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's1', 's3'},

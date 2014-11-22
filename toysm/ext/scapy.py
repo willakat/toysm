@@ -143,7 +143,7 @@ class PacketTransition(Transition):
         super(PacketTransition, self).__init__(desc=desc, **kargs)
         self.template = template
 
-    def is_triggered(self, evt):
+    def is_triggered(self, sm, evt):
         return evt is not None and match_packet(self.template, evt)
 
 

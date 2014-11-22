@@ -74,7 +74,7 @@ class State(object):
         if on_exit:
             self.add_hook('post_exit', on_exit)
 
-    def get_enabled_transitions(self, evt):
+    def get_enabled_transitions(self, sm, evt):
         '''Return transitions from the state for the given event, or None
            for states that are never the source of transition (e.g.
            TerminateState and FinalState).'''
@@ -82,25 +82,25 @@ class State(object):
         # children transitions have a higher priority
         if evt and self.active_substate:
             substate_transitions = \
-                self.active_substate.get_enabled_transitions(evt)
+                self.active_substate.get_enabled_transitions(sm, evt)
             if substate_transitions:
                 return substate_transitions
 
         # No enabled children transitions, try those defined for this state.
-        return self._get_local_enabled_transitions(evt)
+        return self._get_local_enabled_transitions(sm, evt)
 
-    def _get_local_enabled_transitions(self, evt):
+    def _get_local_enabled_transitions(self, sm, evt):
         '''Return transitions for event with this state as source.'''
         transitions = []
         for t in self.transitions:
-            if t.is_triggered(evt):
+            if t._is_triggered(sm, evt):  #pylint: disable=protected-access
                 LOG.debug('%s - transition triggered by event %r: %s',
                           self, evt, t)
                 transitions = [t]
                 if t.kind is Transition.INTERNAL:
                     break
                 tgt = t.target or self
-                allowed, entry_transitions = tgt.get_entry_transitions()
+                allowed, entry_transitions = tgt.get_entry_transitions(sm)
                 if allowed:
                     transitions += entry_transitions
                     break
@@ -109,12 +109,12 @@ class State(object):
         return transitions
 
 
-    def get_entry_transitions(self):
+    def get_entry_transitions(self, sm):
         '''Return a list of transitions triggered by enterring this state.'''
         if self.children:
             if self.initial:
                 # pylint: disable=protected-access
-                _, transitions = self.initial.get_entry_transitions()
+                _, transitions = self.initial.get_entry_transitions(sm)
                 return True, [Transition(source=self, target=self.initial,
                                          kind=Transition._ENTRY)] + transitions
             else:
@@ -297,26 +297,26 @@ class ParallelState(State):
                 raise IllFormedException("PseudoStates cannot be added to a "
                                          "ParallelState")
 
-    def get_enabled_transitions(self, evt):
+    def get_enabled_transitions(self, sm, evt):
         '''Returns the list of transitions enable for a given event on
            this state.
         '''
         substate_transitions = []
         for c in self._still_running_children:
-            substate_transitions += c.get_enabled_transitions(evt)
+            substate_transitions += c.get_enabled_transitions(sm, evt)
         if substate_transitions:
             return substate_transitions
         else:
-            return self._get_local_enabled_transitions(evt)
+            return self._get_local_enabled_transitions(sm, evt)
 
-    def get_entry_transitions(self):
+    def get_entry_transitions(self, sm):
         '''Returns the list of transitions triggered by entering this state.'''
         #pylint: disable=protected-access
         transitions = []
         for c in self.children - self._history:
             transitions.append(Transition(source=self, target=c,
                                           kind=Transition._ENTRY))
-            _, entry_transitions = c.get_entry_transitions()
+            _, entry_transitions = c.get_entry_transitions(sm)
             transitions.extend(entry_transitions)
         return True, transitions
 
@@ -373,15 +373,16 @@ class PseudoState(State):
         # from being generated for PseudoStates
         pass
 
-    def get_enabled_transitions(self, evt):
+    def get_enabled_transitions(self, sm, evt):
         assert False, "PseudoStates cannot have transitions with " \
                "trigger conditions"
 
-    def get_entry_transitions(self):
+    def get_entry_transitions(self, sm):
         allowed, transitions = self.transition_terminal, []
         for t in self.transitions:
-            if t.is_triggered(None):
-                allowed, compound_transition = t.target.get_entry_transitions()
+            if t._is_triggered(sm, None):  #pylint: disable=protected-access
+                allowed, compound_transition = \
+                    t.target.get_entry_transitions(sm)
                 if allowed:
                     transitions.append(t)
                     transitions += compound_transition
@@ -404,8 +405,9 @@ class InitialState(PseudoState):
         raise IllFormedException('Initial state cannot be the target of a '
                                  'transition')
 
-    def get_entry_transitions(self):
-        allowed, transitions = super(InitialState, self).get_entry_transitions()
+    def get_entry_transitions(self, sm):
+        allowed, transitions = \
+            super(InitialState, self).get_entry_transitions(sm)
         if not (allowed and transitions):
             raise IllFormedException("No suitable transition from initial "
                                      "state of %s" % self.parent)
@@ -455,7 +457,7 @@ class HistoryState(PseudoState):
         '''Callback when the HistoryState's parent state is exited.'''
         self._saved_state = self.parent.active_substate
 
-    def get_entry_transitions(self):
+    def get_entry_transitions(self, sm):
         LOG.debug('Entering history state of %s', self.parent)
         if self._saved_state:
             LOG.debug('%s - Following transition to saved sate %s', self,
@@ -467,7 +469,7 @@ class HistoryState(PseudoState):
             LOG.debug('%s - Following default transition', self)
             return True, self.transitions
         LOG.debug('%s - Using default entry for %s', self, self.parent)
-        return self.parent.get_entry_transitions()
+        return self.parent.get_entry_transitions(sm)
 
 @public
 class DeepHistoryState(HistoryState):
@@ -487,7 +489,7 @@ class DeepHistoryState(HistoryState):
     def save_state(self, *_):
         self._saved_state = list(self.parent.get_active_states())
 
-    def get_entry_transitions(self):
+    def get_entry_transitions(self, sm):
         LOG.debug('Entering deep history state of %s', self.parent)
         if self._saved_state:
             LOG.debug('%s - Following transition to saved sate %s', self,
@@ -497,7 +499,7 @@ class DeepHistoryState(HistoryState):
             LOG.debug('%s - Following default transition', self)
             return True, self.transitions
         LOG.debug('%s - Using default entry for %s', self, self.parent)
-        return self.parent.get_entry_transitions()
+        return self.parent.get_entry_transitions(sm)
 
     def _enter_actions(self, sm):
         #pylint: disable=protected-access
@@ -709,14 +711,27 @@ class Transition(with_metaclass(TransitionMeta)):
             self.source = source
             self.target = target
 
-    def is_triggered(self, evt):
-        '''Called to determin if the transition is enabled for the <evt>
+    def is_triggered(self, sm, evt):
+        '''Returns a boolean indicating if the transition should be
+           enabled for the evt event.
+
+           This method is intended to be overridden by subclasses.
+        '''
+        #pylint: disable=unused-argument, no-self-use
+        return evt is None # Completion event
+
+    def _is_triggered(self, sm, evt):
+        '''Called to determine if the transition is enabled for the <evt>
            event.
         '''
         if self.trigger:
-            return self.trigger(evt)
+            triggered = self.trigger(sm, evt) and self.is_triggered(sm, evt)
         else:
-            return evt is None # Completion event
+            triggered = self.is_triggered(sm, evt)
+        LOG.debug('Evaluating transition %s for event %s: %s',
+                  self, evt, triggered)
+        return triggered
+
 
     def _action(self, sm, evt):
         '''Called when the StateMachine follows this transition.'''
@@ -771,7 +786,7 @@ class EqualsTransition(Transition):
         super(EqualsTransition, self).__init__(desc=desc, **kargs)
         self.value = evt_value
 
-    def is_triggered(self, evt):
+    def is_triggered(self, sm, evt):
         return evt is not None and self.value == evt
 
 
@@ -834,7 +849,7 @@ class Timeout(Transition):
         sm.post(self)
         self._sched_id = None
 
-    def is_triggered(self, evt):
+    def is_triggered(self, sm, evt):
         LOG.debug('timeout triggered: %s, %r %r', self, evt, self._sched_id)
         return self is evt
 
