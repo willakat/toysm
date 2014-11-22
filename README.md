@@ -13,7 +13,7 @@ List of features supported in ToySM
 	- TerminateStates
 	- Junction
 	- Shallow and Deep History states
-	? Timeout
+  - Timeouts (akin to TimeEvents)
 
 * Graphic representation
 
@@ -24,7 +24,7 @@ List of features supported in ToySM
 * Integration with [Scapy] [2]
   - PacketTransition to use Scapy packets as transition
     trigger events.
-  - SMBox for use with Scapy Pipes.
+  - SMBox for use with Scapy Pipes (requires Scapy 2.2.0-dev)
 
 
 What's still missing
@@ -34,8 +34,13 @@ What's still missing
   - Representation of Exit/Enter PseudoStates
   - Fork and Join PseudoStates
   - Event deferral
+  - 'do' behavior for states (likely implementation will spawn a thread
+     when a State with a do behavior is entered).
 
 * Better graphing for Hierarchical states
+
+* StateMachine Pause function
+
 
 Dependenies
 -----------
