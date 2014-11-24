@@ -10,6 +10,8 @@ x: done
 - add support for event deferral
 - support for Choice Pseudo States (i.e. Dynamic eval as opposed to static
   eval currently in place for Junctions)
+- fork/join pseudostates
+- entry/exit pseudostates
 
 ## Features
 - threaded state
@@ -18,6 +20,10 @@ x: done
     to event queue, each unknown key yields a new FSM, and those
     that yield a known key are processed by their specific FSM.
 - implement StateMachine pause function
+? before starting a state machine, check that all states (aside
+  from the root state) have a parent. This actually can be 
+  broadened to implementing better/stricter checking of constraints
+  layed out in the UML2 spec.
 
 ## DONE / Partially DONE ##
 ~ graph

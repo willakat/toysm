@@ -46,7 +46,8 @@ class State(object):
     dot = {
         'style': 'rounded',
         'shape': 'rect',
-        #'label': lambda s: '<<table border="0" cellborder="1" sides="LR"><tr><td>%s</td></tr></table>>'%s.name or ''
+        #'label': lambda s: '<<table border="0" cellborder="1" sides="LR">'
+        #                   '<tr><td>%s</td></tr></table>>'%s.name or ''
         'label': lambda s: s.name or ''
     }
 
