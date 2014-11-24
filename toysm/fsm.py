@@ -46,7 +46,7 @@ import logging
 LOG = logging.getLogger(__name__)
 
 DOT = 'dot'
-XDOT = 'xdot'
+XDOT = 'xdot -'
 
 def _bytes(string, enc='utf-8'):
     '''Returns bytes of the string argument. Compatible w/ Python 2
