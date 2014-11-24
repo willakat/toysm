@@ -101,15 +101,13 @@ class StateMachine(object):
             self._cstate = State(sexp=cstate)
         self._event_queue = queue.Queue()
         self._completed = set() # set of completed states
-        if sys.version_info.major < 3:
+        if sys.version_info.major > 3 \
+           or (sys.version_info.major == 3 and sys.version_info.minor >= 3):
+            self._sched = sched.scheduler()
+            self._v3sched = True
+        else:
             self._sched = sched.scheduler(time.time, self._sched_wait)
             self._v3sched = False
-        else:
-            if sys.version_info.major == 3 and sys.version_info.minor >= 3:
-                self._sched = sched.scheduler(time.monotonic)
-            else:
-                self._sched = sched.scheduler()
-            self._v3sched = True
         self._terminated = False
         self._thread = None
         self._settled = Event()
