@@ -405,6 +405,7 @@ class StateMachine(object):
 
 
 if __name__ == "__main__":
+    #pylint: disable=pointless-statement, expression-not-assigned
     from toysm import Timeout, HistoryState, FinalState
     #s = State()
     #s1 = State('s1', parent=s, initial=True)
