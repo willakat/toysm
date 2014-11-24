@@ -721,4 +721,7 @@ class TestFSM(unittest.TestCase):
               (s1,  'exit'),
               ], strict=True))
 
+if __name__ == '__main__':
+    unittest.main()
+
 # vim:expandtab:sw=4:sts=4

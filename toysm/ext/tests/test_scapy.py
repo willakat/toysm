@@ -134,4 +134,7 @@ class TestSMBox(unittest.TestCase):
         engine.wait_and_stop()
         self.assertEqual('Got a', queue.recv())
 
+if __name__ == '__main__':
+    unittest.main()
+
 # vim:expandtab:sw=4:sts=4
