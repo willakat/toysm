@@ -42,8 +42,8 @@ What's still missing
 * StateMachine Pause function
 
 
-Dependenies
------------
+Dependencies
+------------
 - [Graphviz] [3]: to produce visual representation of a StateMachine
 - [xdot] [4]: direct graph rendering instead of rendering to file
 - [six] [5]: Python 2/3 compatibility
