@@ -102,12 +102,12 @@ class TestPacketTransition(unittest.TestCase):
         s3 = State('timedout')
 
         actions = []
-        s1 >> Transition(action=lambda sm, e: actions.append('echo request')) \
+        s1 >> CompletionTransition(action=lambda sm, e: actions.append('echo request')) \
            >> s2 >> PacketTransition(IP()/ICMP(type='echo-reply'),
                                      action=lambda sm,e: actions.append('echo reply')) \
            >> fs
         s2 >> Timeout(2) >> s3 \
-           >> Transition(action=lambda sm, e: actions.append('Timed out')) >> fs
+           >> CompletionTransition(action=lambda sm, e: actions.append('Timed out')) >> fs
 
         sm = StateMachine(s1, s2, s3, fs)
         #sm.graph()

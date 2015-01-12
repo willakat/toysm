@@ -27,7 +27,7 @@ import time
 import logging
 
 LOG_LEVEL = logging.INFO
-#LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.DEBUG
 
 logging.basicConfig(level=LOG_LEVEL)
 
@@ -720,6 +720,65 @@ class TestFSM(unittest.TestCase):
               (s12, 'exit'),
               (s1,  'exit'),
               ], strict=True))
+
+    def test_basic_transition(self):
+        s0 = State('s0')
+        s1 = State('s1', parent=s0, initial=True)
+        s2 = State('s2', parent=s0)
+        def transition_trigger_check(sm, evt):
+            Trace.add('my_transition', 'check')
+            return True
+        def transition_action(sm, evt):
+            Trace.add('my_transition', 'action')
+        s1 >> Transition(trigger=transition_trigger_check,
+                         action=transition_action) >> s2
+        s2 >> FinalState(parent=s0)
+
+        sm = StateMachine(s0)
+        sm.start()
+        sm.post('x')
+
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ ('my_transition',  'check'),
+              ('my_transition', 'action'), ]))
+        self.assertTrue(sm.join(1))
+
+    def test_guarded_completion(self):
+        s0 = State('s0')
+        s1 = State('s1', parent=s0, initial=True)
+        s2 = State('s2', parent=s0)
+        s3 = State('s3', parent=s0)
+        def transition_trigger_check1(sm, evt):
+            Trace.add('my_transition1', 'check')
+            return False
+        def transition_trigger_check2(sm, evt):
+            Trace.add('my_transition2', 'check')
+            return True
+        def transition_action1(sm, evt):
+            self.assertIsNone(evt)
+            Trace.add('my_transition1', 'action')
+        def transition_action2(sm, evt):
+            self.assertIsNone(evt)
+            Trace.add('my_transition2', 'action')
+        s1 >> CompletionTransition(trigger=transition_trigger_check1,
+                         action=transition_action1) >> s2
+        s1 >> CompletionTransition(trigger=transition_trigger_check2,
+                         action=transition_action2) >> s3
+        s2 >> FinalState(parent=s0) << s3
+
+        sm = StateMachine(s0)
+        sm.start()
+
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ ('my_transition2',  'check'),
+              ('my_transition2', 'action'), ]))
+        self.assertTrue(Trace.contains(
+            [ ('my_transition1',  'check'), ]))
+        self.assertFalse(Trace.contains(
+            [ ('my_transition1',  'action'), ], show_on_fail=False))
+        self.assertTrue(sm.join(1))
 
 if __name__ == '__main__':
     unittest.main()

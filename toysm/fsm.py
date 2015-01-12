@@ -131,7 +131,9 @@ class StateMachine(object):
         t = self._thread
         if t is not None:
             t.join(*args)
-        return not t.isAlive()
+            return not t.isAlive()
+        else:
+            return True
 
     def settle(self, timeout):
         '''Returns once the SM has finished all available input events.

@@ -608,7 +608,7 @@ class _StateExpression(object):
         if isinstance(a, State):
             if isinstance(b, State):
                 # Completion transition
-                Transition(source=a, target=b)
+                CompletionTransition(source=a, target=b)
             else:
                 a.add_transition(b)
         elif isinstance(b, State):
@@ -719,14 +719,15 @@ class Transition(with_metaclass(TransitionMeta)):
            This method is intended to be overridden by subclasses.
         '''
         #pylint: disable=unused-argument, no-self-use
-        return evt is None # Completion event
+        return evt is not None  # Not a completion event (Completion events
+                                # are recognized by CompletionTransition.
 
     def _is_triggered(self, sm, evt):
         '''Called to determine if the transition is enabled for the <evt>
            event.
         '''
         if self.trigger:
-            triggered = self.trigger(sm, evt) and self.is_triggered(sm, evt)
+            triggered = self.is_triggered(sm, evt) and self.trigger(sm, evt)
         else:
             triggered = self.is_triggered(sm, evt)
         LOG.debug('Evaluating transition %s for event %s: %s',
@@ -770,6 +771,11 @@ class Transition(with_metaclass(TransitionMeta)):
                 return cls(value, **kargs)
         raise IllFormedException("Cannot build a transition using '%r'" %
                                  value)
+
+@public
+class CompletionTransition(Transition):
+    def is_triggered(self, sm, evt):
+        return evt is None
 
 @public
 class EqualsTransition(Transition):
