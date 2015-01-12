@@ -774,6 +774,12 @@ class Transition(with_metaclass(TransitionMeta)):
 
 @public
 class CompletionTransition(Transition):
+    '''Special Transition used to indicate that the Transition should
+       trigger when its source State completes.
+       Note that a Completion can nevertheless have a trigger condition,
+       this trigger should however not expect <evt> to be anything else
+       than None.
+    '''
     def is_triggered(self, sm, evt):
         return evt is None
 
