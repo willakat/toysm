@@ -424,7 +424,7 @@ class StateMachine(object):
            be determined based on the StateMachines current enabled
            transitions for the given event.
         '''
-        LOG.debug('%s -%s processing event %r', self, 
+        LOG.debug('%s -%s processing event %r', self,
                   '' if self._demux is None else ' key=%r -' % sm_state.key, evt)
         if transitions is None:
             transitions = self._cstate.get_enabled_transitions(sm_state, evt)

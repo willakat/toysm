@@ -469,16 +469,17 @@ class HistoryState(PseudoState):
 
     def save_state(self, sm, *_):
         '''Callback when the HistoryState's parent state is exited.'''
+        #pylint: disable=protected-access
         sm._history[self] = sm.retrieve_state(self.parent)
         # TODO: implicit expectation that retrieve_state returns a State object
 
     def get_entry_transitions(self, sm):
         LOG.debug('Entering history state of %s', self.parent)
+        #pylint: disable=protected-access
         saved = sm._history.get(self)
         if saved:
-            LOG.debug('%s - Following transition to saved sate %s', 
+            LOG.debug('%s - Following transition to saved sate %s',
                       self, saved)
-            #pylint: disable=protected-access
             _, saved_state_entry_transitions = saved.get_entry_transitions(sm)
             return True, [Transition(source=self, target=saved,
                                      kind=Transition._ENTRY)] \
@@ -505,13 +506,14 @@ class DeepHistoryState(HistoryState):
         parent.add_hook('pre_exit', self.save_state)
 
     def save_state(self, sm, *_):
+        #pylint: disable=protected-access
         sm._history[self] = list(self.parent.get_active_states(sm))
 
     def get_entry_transitions(self, sm):
         LOG.debug('Entering deep history state of %s', self.parent)
-        saved = sm._history.get(self)
+        saved = sm._history.get(self)   #pylint: disable=protected-access
         if saved:
-            LOG.debug('%s - Following transition to saved state %s', 
+            LOG.debug('%s - Following transition to saved state %s',
                       self, saved)
             return True, []
         if self.transitions:
