@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014 William Barsse
+# Copyright 2014-2015 William Barsse
 #
 ################################################################################
 #
@@ -23,6 +23,11 @@
 
 # pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
 # pylint: disable=invalid-name
+
+
+# TODO: improve terminology. State vs SMState vs StateMachine vs instance vs
+# object vs sm_state. Find a good term to define "instances" of StateMachine
+# objects (subinstance!?)
 
 try:
     # python3
@@ -83,12 +88,77 @@ def dot_attrs(obj, **overrides):
                     for (k, v) in (resolve(i) for i in d.items()))
 
 
+class SMState(object):
+    '''
+    Reflects the "state" of a StateMachine.
+
+    The "state" of the StateMachine covers all information to describe
+    which State objects are active in the StateMachine.
+
+    Instances of this class are always linked to a particular StateMachine
+    object. They will serve as proxies to their StateMachine, i.e. attributes
+    not supportted by SMState will be retrieved from their linked StateMachine.
+
+    An instance of SMState will be passed (instead of the actual StateMachine
+    instance) in callbacks that pass a reference to the StateMachine.
+    '''
+
+    def __init__(self, sm, key=None):
+        self._sm = sm
+        self._state = {}
+        self.key = key
+        self._history = {}  # dictionary in which history states
+                            # persist information for their SMState.
+
+    def __getattr__(self, name):
+        return getattr(self._sm, name)
+
+    def retrieve_state(self, state):
+        '''Returns the stored state for the given state.'''
+        return self._state.get(state)
+
+    def store_state(self, state, stored_state):
+        '''Saves the stored_state for the given state.'''
+        self._state[state] = stored_state
+
+    def post(self, *evts):
+        '''Adds an event to the State Machine instance's input processing
+           queue.'''
+        self._sm.post(*evts, sm_state=self)
+
+    def post_completion(self, state):
+        '''Indicate that <state> in this State Machine instance has
+           completed.'''
+
+        self._sm.post_completion(state, sm_state=self)
+
+    def stop(self):
+        self._sm.stop(sm_state=self)
+
 @public
 class StateMachine(object):
     '''StateMachine .... think of something smart to put here ;-).'''
     MAX_STOP_WAIT = .1
 
-    def __init__(self, cstate, *states):
+    def __init__(self, cstate, *states, **kargs):
+        '''
+        Creates a StateMachine. All non-keyword arguments are top-level
+        states, the first of which will be considered the "Initial" state.
+
+        Keyword Arguments:
+        demux:  function called for events posted to the StateMachine in
+                order to route them to a distinct SM instance. The demux
+                function should comply with the following signature:
+                demux(sm, evt) -> (instance_key, evt)
+                where instance_key will be used by the StateMachine object
+                to determine which instance the evt will be routed to.
+                The demux function can modify evt and return the modifyed
+                version from the function.
+        '''
+        allowed_kargs = {'demux'}
+        if not kargs.keys() <= allowed_kargs:
+            raise TypeError("Unexpected keyword argument(s) '%s'" %
+                            (list(kargs - allowed_kargs)))
         if states:
             self._cstate = State()
             self._cstate.add_state(cstate, initial=True)
@@ -99,8 +169,15 @@ class StateMachine(object):
         else:
             # State expression is wrapped into a superstate
             self._cstate = State(sexp=cstate)
+        # Event Queue shared by all instances of the State Machine
+        # Queue elements are (SMState, evt) tuples
         self._event_queue = queue.Queue()
+
+        # Set of states that have just completed (and need their
+        # completion transtions, if any, performed).
+        # the set is made up of (SMState, State) tuples.
         self._completed = set() # set of completed states
+
         if sys.version_info.major > 3 \
            or (sys.version_info.major == 3 and sys.version_info.minor >= 3):
             self._sched = sched.scheduler()
@@ -111,6 +188,13 @@ class StateMachine(object):
         self._terminated = False
         self._thread = None
         self._settled = Event()
+        self._demux = kargs.get('demux')
+        if self._demux:
+            self._sm_instances = {}
+        else:
+            # Force creation of initial SMState
+            self._sm_state = None
+            self._get_sm_state(None)
 
     def start(self):
         '''Starts the StateMachine.'''
@@ -129,11 +213,11 @@ class StateMachine(object):
            before this timeout expires, the method returns False.
         '''
         t = self._thread
-        if t is not None:
+        if t is None:
+            return True
+        else:
             t.join(*args)
             return not t.isAlive()
-        else:
-            return True
 
     def settle(self, timeout):
         '''Returns once the SM has finished all available input events.
@@ -147,21 +231,43 @@ class StateMachine(object):
         '''Request the StateMachine to pause.'''
         pass
 
-    def stop(self):
-        '''Stops the State Machine.'''
+    def stop(self, sm_state=None):
+        '''Stops the State Machine instane. If sm_state is None, all
+           instances are immediately stopped.'''
         LOG.debug("%s - Stopping state machine", self)
-        self._terminated = True
+        if sm_state is None or self._demux is None:
+            self._terminated = True
+        else:
+            del self._sm_instances[sm_state.key]
 
-    def post(self, *evts):
-        '''Adds an event to the State Machine's input processing queue.'''
+    def post(self, *evts, **kargs):
+        '''Adds event(s) to the State Machine's input processing queue.
+
+        Keyword arguments:
+        sm_state: SMState to which the event should be posted. If not set
+                  and the StateMachine was created with a 'demux' argument,
+                  the 'demux' function will be used to determine which
+                  SMState should be used.
+        '''
+        allowed_kargs = {'sm_state'}
+        if not kargs.keys() <= allowed_kargs:
+            raise TypeError("Unexpected keyword argument(s) '%s'" %
+                            (list(kargs - allowed_kargs)))
         self._settled.clear()
         for e in evts:
-            self._event_queue.put(e)
+            if e is None:
+                # None events are used internally to indicate that the
+                # the SMState needs initialization
+                raise TypeError('Event posted to SM cannot be None.')
+            self._event_queue.put( \
+                self._get_sm_state(e, sm_state=kargs.get('sm_state')))
 
-    def post_completion(self, state):
-        '''Indicates to the SM that the state has completed.'''
+    def post_completion(self, state, sm_state):
+        '''Indicates to the SM that the state has completed.
+           Unlike StateMachine.post(), if demux is set then calls to
+           post_completion need to position the sm_state argument.'''
         LOG.debug('%s - state completed', state)
-        self._completed.add(state)
+        self._completed.add((sm_state, state))
 
     def _assign_depth(self, state=None, depth=0):
         '''Assign _depth attribute to states used by the StateMachine.
@@ -187,6 +293,25 @@ class StateMachine(object):
             a_path, b_path = self._lca(a.parent, b.parent)
             return [a] + a_path, b_path + [b]
 
+    def _get_sm_state(self, evt, sm_state=None):
+        def post_init_sm_state(sm_state):
+            self._event_queue.put((sm_state, None))
+
+        if sm_state is None:
+            if self._demux:
+                sm_key, evt = self._demux(evt)
+                sm_state = self._sm_instances.get(sm_key)
+                if sm_state is None:
+                    sm_state = SMState(self, key=sm_key)
+                    self._sm_instances[sm_key] = sm_state
+                    post_init_sm_state(sm_state)
+            else:
+                if self._sm_state is None:
+                    self._sm_state = SMState(self)
+                    post_init_sm_state(self._sm_state)
+                sm_state = self._sm_state
+        return sm_state, evt
+
     def _sched_wait(self, delay):
         '''Waits for next scheduled event all the while processing
            potential external events posted to the SM.
@@ -205,18 +330,21 @@ class StateMachine(object):
     def _process_completion_events(self):
         '''Processes all available completion events.'''
         while not self._terminated and self._completed:
-            state = self._completed.pop()
+            sm_state, state = self._completed.pop()
             LOG.debug('%s - handling completion of %s', self, state)
-            self._step(evt=None,
-                       transitions=state.get_enabled_transitions(self, None))
+            transitions = state.get_enabled_transitions(sm_state, None)
+            self._step(evt=None, sm_state=sm_state, transitions=transitions)
             if state.parent:
-                state.parent.child_completed(self, state)
+                state.parent.child_completed(sm_state, state)
             else:
-                state._exit(self)   #pylint: disable=protected-access
-                self.stop() # top level region completed.
+                # top level region completed.
+                state._exit(sm_state)   #pylint: disable=protected-access
+                self.stop(sm_state=sm_state)
 
     def _process_next_event(self, t_max=None):
-        '''Process one event posted to the SM until a specified time.'''
+        '''Wait for an event tobe posted to the SM and process it. Optionaly,
+           return None if no event was posted before <t_max> is reached.
+        '''
         try:
             # Non-blocking call, serves to both
             # check if the queue is empty and
@@ -248,18 +376,24 @@ class StateMachine(object):
                 return
         # New event available, process it.
         assert evt
-        self._step(evt)
+        sm_state, evt = evt
+        if evt is None:
+            # SMState needs to be initialized
+            # perform entry into the root region/state
+
+            # pylint: disable=protected-access
+            self._cstate._enter(sm_state)
+            # and trigger entry_transitions if any
+            _, transitions = sm_state._cstate.get_entry_transitions(sm_state)
+        else:
+            transitions = None
+        self._step(sm_state, evt, transitions=transitions)
 
 
     def _loop(self):
         '''State Machine loop, called by the SM's thread'''
         # assign dept to each state (to assist LCA calculation)
         self._assign_depth()
-
-        # perform entry into the root region/state
-        self._cstate._enter(self)       # pylint: disable = W0212
-        _, entry_transitions = self._cstate.get_entry_transitions(self)
-        self._step(evt=None, transitions=entry_transitions)
 
         # loop should:
         # - exit when _terminated is True
@@ -284,15 +418,16 @@ class StateMachine(object):
                       self, self._event_queue.queue)
         self._thread = None
 
-    def _step(self, evt, transitions=None):
-        '''Make the StateMachine evovle according to the evt event.
+    def _step(self, sm_state, evt, transitions=None):
+        '''Make the StateMachine evolve sm_state according to the evt event.
            If transitions is None, relevant transitions will
            be determined based on the StateMachines current enabled
            transitions for the given event.
         '''
-        LOG.debug('%s - processing event %r', self, evt)
+        LOG.debug('%s -%s processing event %r', self,
+                  '' if self._demux is None else ' key=%r -' % sm_state.key, evt)
         if transitions is None:
-            transitions = self._cstate.get_enabled_transitions(self, evt)
+            transitions = self._cstate.get_enabled_transitions(sm_state, evt)
         while transitions:
             if LOG.isEnabledFor(logging.DEBUG):
                 LOG.debug("Transitions to be processed: %s",
@@ -302,7 +437,7 @@ class StateMachine(object):
             t, transitions = transitions[0], transitions[1:]
             LOG.debug("%s - following transition %s", self, t)
             if t.kind is Transition.INTERNAL:
-                t._action(self, evt)    # pylint: disable = W0212
+                t._action(sm_state, evt)    # pylint: disable = W0212
                 continue
             src = t.source
             tgt = t.target or t.source #if no target is defined, target is self
@@ -316,19 +451,19 @@ class StateMachine(object):
                                 (src, tgt))
             if t.kind is Transition.EXTERNAL \
                 and (len(s_path) == 1 or len(t_path) == 1):
-                s_path[-1]._exit(self)
+                s_path[-1]._exit(sm_state)
                 t_path.insert(0, None)
             elif len(s_path) > 1:
-                s_path[-2]._exit(self)
+                s_path[-2]._exit(sm_state)
 
             LOG.debug('%s - performing transition behavior for %s', self, t)
-            t._action(self, evt)
+            t._action(sm_state, evt)
 
             for a, b in [(t_path[i], t_path[i+1])
                          for i in range(len(t_path) - 1)]:
                 if a is not None:
-                    a.active_substate = b
-                b._enter(self)
+                    a.set_active_substate(sm_state, b)
+                b._enter(sm_state)
         LOG.debug("%s - step complete for %r", self, evt)
 
     def graph(self, fname=None, fmt=None, prg=None):

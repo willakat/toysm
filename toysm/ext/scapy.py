@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014 William Barsse
+# Copyright 2014-2015 William Barsse
 #
 ################################################################################
 #
@@ -179,8 +179,8 @@ if HAVE_PIPETOOL:
             '''Publishes a message on the Box's high output.'''
             self._gen_high_data(msg)
 
-        def stop(self):
-            StateMachine.stop(self)
+        def stop(self, sm_state=None):
+            StateMachine.stop(self, sm_state=sm_state)
             if not self.is_exhausted:
                 self.is_exhausted = True
                 # Force PipeEngine to wakeup this Source and 'notice'

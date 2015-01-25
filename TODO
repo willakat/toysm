@@ -15,15 +15,15 @@ x: done
 
 ## Features
 - threaded state
-- multi-instance FSM:
-  - a function is used to determine a key based on Events posted
-    to event queue, each unknown key yields a new FSM, and those
-    that yield a known key are processed by their specific FSM.
 - implement StateMachine pause function
 ? before starting a state machine, check that all states (aside
   from the root state) have a parent. This actually can be 
   broadened to implementing better/stricter checking of constraints
   layed out in the UML2 spec.
+
+## Misc
+- Revisit naming of SMState vs Instance to make things simpler to grasp.
+  One ideas is to rename SMState something like SMDescriptor...
 
 ## DONE / Partially DONE ##
 ~ graph
@@ -85,3 +85,13 @@ x break fsm.py up into several files: sm.py transition.py state.py
   otherwise)
 x join should return a boolean indicating whether or not the tread stopped
 x add a sm.settle method to wait until the event queue is empty
+x multi-instance FSM:
+  x a function is used to determine a key based on Events posted
+    to event queue, each unknown key yields a new FSM, and those
+    that yield a known key are processed by their specific FSM.
+  ? transient hooks on State entry/exit (e.g. Timeouts) need to 
+    be tied to one of the SM instances => SMState should
+    store this info.
+    Note: For now States and StateMachine don't evolve while the SM
+          is running everything happens within SMState. This covers
+	  all current test cases/features.
