@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014 William Barsse
+# Copyright 2014-2015 William Barsse
 #
 ################################################################################
 #
@@ -59,7 +59,6 @@ class State(object):
         self.name = name
         self.initial = None # Initial substate (if any)
         self.children = set()
-        self.active_substate = None
         self.hooks = {
             'pre_entry': [],
             'post_entry': [],
@@ -81,11 +80,13 @@ class State(object):
            TerminateState and FinalState).'''
         LOG.debug("%s - get_enabled_transitions for %r", self, evt)
         # children transitions have a higher priority
-        if evt and self.active_substate:
-            substate_transitions = \
-                self.active_substate.get_enabled_transitions(sm, evt)
-            if substate_transitions:
-                return substate_transitions
+        if evt:
+            active_substate = sm.retrieve_state(self)
+            if active_substate:
+                substate_transitions = \
+                    active_substate.get_enabled_transitions(sm, evt)
+                if substate_transitions:
+                    return substate_transitions
 
         # No enabled children transitions, try those defined for this state.
         return self._get_local_enabled_transitions(sm, evt)
@@ -154,7 +155,7 @@ class State(object):
 
     def _enter_actions(self, sm):
         '''Performs class specific actions on state entry.
-           It is called by the _enter method.
+           Called by the _enter method.
            This method is intended to be overriden for state
            specificities.
         '''
@@ -183,9 +184,10 @@ class State(object):
         '''Perform custom actions for a state when the
            StateMachine moves out of this state.
         '''
-        if self.active_substate:
-            self.active_substate._exit(sm)  # pylint: disable=protected-access
-            self.active_substate = None
+        active_substate = sm.retrieve_state(self)
+        if active_substate:
+            active_substate._exit(sm)  # pylint: disable=protected-access
+            active_substate = None
 
     def add_transition(self, t):
         '''Sets this state as the source of Transition t.'''
@@ -249,22 +251,26 @@ class State(object):
                 'exit' : 'post_exit',}.get(kind, kind)
         self.hooks[kind].append((hook, args, kargs))
 
-    def get_active_states(self):
+    def set_active_substate(self, sm, state):
+        sm.store_state(self, state)
+
+    def get_active_states(self, sm):
         '''Return an iterator over the active substates of the state
            the method is called on. The result will include the state
            itself.
         '''
-        yield (self, self.active_substate)
-        if self.children:
-            for i in self.active_substate.get_active_states():
+        active_substate = sm.retrieve_state(self)
+        yield (self, active_substate)
+        if active_substate:
+            for i in active_substate.get_active_states(sm):
                 yield i
 
-    def restore_state(self, saved):
+    def restore_state(self, sm, saved):
         '''Restore the State to a previously saved condition.
            This saved condition can be obtained by a call
            to State.get_active_states.
         '''
-        self.active_substate = saved
+        sm.store_state(self, saved)
 
     def __str__(self):
         return "{%s%s}" % (self.__class__.__name__,
@@ -284,7 +290,6 @@ class ParallelState(State):
     '''
     def __init__(self, *args, **kargs):
         super(ParallelState, self).__init__(*args, **kargs)
-        self._still_running_children = None
         self._history = set()
 
     def accept_substate(self, state, initial):
@@ -303,7 +308,8 @@ class ParallelState(State):
            this state.
         '''
         substate_transitions = []
-        for c in self._still_running_children:
+        still_running_children = sm.retrieve_state(self)
+        for c in still_running_children:
             substate_transitions += c.get_enabled_transitions(sm, evt)
         if substate_transitions:
             return substate_transitions
@@ -322,31 +328,37 @@ class ParallelState(State):
         return True, transitions
 
     def child_completed(self, sm, child):
-        self._still_running_children.remove(child)
-        if not self._still_running_children:
+        still_running_children = sm.retrieve_state(self)
+        still_running_children.remove(child)
+        if not still_running_children:
             # All children states/regions have completed
             sm.post_completion(self)
 
     def _enter_actions(self, sm):
         LOG.debug('pstate children %s', self.children)
-        self._still_running_children = self.children - self._history
+        sm.store_state(self, self.children - self._history)
 
     def _exit_actions(self, sm):
         for c in self.children - self._history:
             c._exit(sm)         #pylint: disable=protected-access
 
-    def get_active_states(self):
+    def get_active_states(self, sm):
         '''Return an iterator over the active substates of the state
            the method is called on. The result will include the state
            itself.
         '''
-        yield (self, self._still_running_children.copy())
-        for i in self._still_running_children:
-            for j in i.get_active_states():
+        still_running_children = sm.retrieve_state(self)
+        yield (self, still_running_children.copy())
+        for i in still_running_children:
+            for j in i.get_active_states(sm):
                 yield j
 
-    def restore_state(self, saved):
-        self._still_running_children = saved
+    def restore_state(self, sm, saved):
+        sm.store_state(self, saved)
+
+    def set_active_substate(self, sm, state):
+        pass
+
 
 @public
 class PseudoState(State):
@@ -390,6 +402,9 @@ class PseudoState(State):
                     break
         return allowed, transitions
 
+    def set_active_substate(self, sm, state):
+        assert False, "set_substate called on PseudoState"
+
 
 @public
 class InitialState(PseudoState):
@@ -414,7 +429,6 @@ class InitialState(PseudoState):
                                      "state of %s" % self.parent)
         return True, transitions
 
-
 @public
 class Junction(PseudoState):
     '''PseudoState that allows multiple transitions to be stringed together.'''
@@ -437,7 +451,6 @@ class HistoryState(PseudoState):
 
     def __init__(self, initial=None, **args):
         super(HistoryState, self).__init__(initial=False, **args)
-        self._saved_state = None
 
     def add_transition(self, t):
         if self.transitions:
@@ -454,18 +467,22 @@ class HistoryState(PseudoState):
             raise IllFormedException("History state cannot be an initial state")
         parent.add_hook('pre_exit', self.save_state)
 
-    def save_state(self, *_):
+    def save_state(self, sm, *_):
         '''Callback when the HistoryState's parent state is exited.'''
-        self._saved_state = self.parent.active_substate
+        sm._history[self] = sm.retrieve_state(self.parent)
+        # TODO: implicit expectation that retrieve_state returns a State object
 
     def get_entry_transitions(self, sm):
         LOG.debug('Entering history state of %s', self.parent)
-        if self._saved_state:
-            LOG.debug('%s - Following transition to saved sate %s', self,
-                      self._saved_state)
+        saved = sm._history.get(self)
+        if saved:
+            LOG.debug('%s - Following transition to saved sate %s', 
+                      self, saved)
             #pylint: disable=protected-access
-            return True, [Transition(source=self, target=self._saved_state,
-                                     kind=Transition._ENTRY)]
+            _, saved_state_entry_transitions = saved.get_entry_transitions(sm)
+            return True, [Transition(source=self, target=saved,
+                                     kind=Transition._ENTRY)] \
+                         + saved_state_entry_transitions
         if self.transitions:
             LOG.debug('%s - Following default transition', self)
             return True, self.transitions
@@ -487,14 +504,15 @@ class DeepHistoryState(HistoryState):
             raise IllFormedException("History state cannot be an initial state")
         parent.add_hook('pre_exit', self.save_state)
 
-    def save_state(self, *_):
-        self._saved_state = list(self.parent.get_active_states())
+    def save_state(self, sm, *_):
+        sm._history[self] = list(self.parent.get_active_states(sm))
 
     def get_entry_transitions(self, sm):
         LOG.debug('Entering deep history state of %s', self.parent)
-        if self._saved_state:
-            LOG.debug('%s - Following transition to saved sate %s', self,
-                      self._saved_state)
+        saved = sm._history.get(self)
+        if saved:
+            LOG.debug('%s - Following transition to saved state %s', 
+                      self, saved)
             return True, []
         if self.transitions:
             LOG.debug('%s - Following default transition', self)
@@ -504,11 +522,13 @@ class DeepHistoryState(HistoryState):
 
     def _enter_actions(self, sm):
         #pylint: disable=protected-access
-        if self._saved_state:
-            self.parent.restore_state(self._saved_state[0][1])
-            for (s, saved) in self._saved_state[1:]:
+        saved = sm._history.get(self)
+        if saved:
+            self.parent.restore_state(sm, saved[0][1])
+            for (s, _) in saved[1:]:
+                # sm already has the saved states, all we need to
+                # do here is re-enter all of them.
                 s._enter(sm)
-                s.restore_state(saved)
 
 
 class _SinkState(PseudoState):

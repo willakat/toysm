@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014 William Barsse 
+# Copyright 2014-2015 William Barsse 
 #
 ################################################################################
 #
@@ -23,6 +23,7 @@
 
 import unittest
 import time
+from collections import defaultdict
 
 import logging
 
@@ -34,38 +35,40 @@ logging.basicConfig(level=LOG_LEVEL)
 from toysm import *
 
 class Trace:
-    evt_log = []
+    evt_log = defaultdict(list)
 
     @classmethod
-    def add(cls, elt, kind=None):
-       cls.evt_log.append((elt, kind))
+    def add(cls, key, elt, kind=None):
+        evt_log = cls.evt_log[key]
+        evt_log.append((elt, kind))
 
     @classmethod
-    def contains(cls, seq, strict=False, show_on_fail=True):
+    def contains(cls, seq, strict=False, show_on_fail=True, key=None):
+        evt_log = cls.evt_log[key]
         try:
             i = 0
-            j = i + 1 if strict else len(cls.evt_log)
+            j = i + 1 if strict else len(evt_log)
             for e in seq:
-                i = cls.evt_log.index(e, i, j) + 1
+                i = evt_log.index(e, i, j) + 1
                 if strict:
                     j = i + 1
             return True
         except ValueError:
             if show_on_fail:
                 print ('Did not find item (%s, %r)'%(e[0], e[1]))
-                cls.show()
+                cls.show(pos=i, key=key)
             return False
 
     @classmethod
     def clear(cls):
-        #cls.evt_log.clear()
-        cls.evt_log = []
+        cls.evt_log = defaultdict(list)
 
     @classmethod
-    def show(cls):
-        print ('Event log content:')
-        for i, e in enumerate(cls.evt_log):
-            print ('%i: %s - %r'%(i, e[0], e[1]))
+    def show(cls, key=None, pos=None):
+        evt_log = cls.evt_log[key]
+        print ('Event log content%s:' % ('' if key is None else ' for key %r' % key))
+        for i, e in enumerate(evt_log):
+            print ('%s%i: %s - %r'%('* ' if pos == i else '  ', i, e[0], e[1]))
         
 
 def trace(elt, transitions=True):
@@ -75,7 +78,7 @@ def trace(elt, transitions=True):
         elt = [elt]
 
     def h(sm, elt, msg=None):
-        Trace.add(elt, msg)
+        Trace.add(sm.key, elt, msg)
 
     for e in elt:
         if isinstance(e, State):
@@ -84,7 +87,7 @@ def trace(elt, transitions=True):
             if transitions and isinstance(e, State):
                 trace(tuple(e.transitions), transitions=False)
         else:
-            e.add_hook(lambda sm,t,evt: Trace.add(t, 'action'))
+            e.add_hook(lambda sm,t,evt: Trace.add(sm.key, t, 'action'))
     return elt if len(elt) > 1 else elt[0]
 
 class TestFSM(unittest.TestCase):
@@ -385,7 +388,7 @@ class TestFSM(unittest.TestCase):
 
     def test_history_state(self):
         '''Check basic history state recovery when parent state is entered.
-           Also show that transition to 'unitialized' history state follows
+           Also show that transition to 'uninitialized' history state follows
            standard state entry (to initial substate).'''
         s1 = State('s1') 
         s2 = State('s2')
@@ -572,15 +575,15 @@ class TestFSM(unittest.TestCase):
         sm.post('a')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'s12', 's22', 's1', 'root', 's2'},
-                         {s.name for (s,_) in s0.get_active_states()})
+                         {s.name for (s,_) in s0.get_active_states(sm._sm_state)})
         sm.post('b')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'s11', 's21', 's111', 's211', 's1', 'root', 's2'},
-                         {s.name for (s,_) in s0.get_active_states()})
+                         {s.name for (s,_) in s0.get_active_states(sm._sm_state)})
         sm.post('c')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'s11', 's21', 's112', 's212', 's1', 'root', 's2'},
-                         {s.name for (s,_) in s0.get_active_states()})
+                         {s.name for (s,_) in s0.get_active_states(sm._sm_state)})
         sm.post('d')
         self.assertTrue(sm.join(1))
 
@@ -615,49 +618,50 @@ class TestFSM(unittest.TestCase):
 
         sm = StateMachine(p0, r0, j >> FinalState())
         #sm.graph(prg='cat')
+        #sm.graph(prg='tee out.dot | xdot -')
         sm.start()
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's1', 's3'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
         sm.post('r')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's7', 's5'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('1')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's6', 's8'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
         
         sm.post('p')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's1', 's3'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('1')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's2', 's4'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('r')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r01', 's6', 's8'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('3')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r02'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('p')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'p0', 's2', 's4'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('r')
         self.assertTrue(sm.settle(.1))
         self.assertEqual({'r0', 'r02'},
-                         {s.name for (s,_) in sm._cstate.get_active_states() if s.name})
+                         {s.name for (s,_) in sm._cstate.get_active_states(sm._sm_state) if s.name})
 
         sm.post('e')
         self.assertTrue(sm.join(1))
@@ -721,6 +725,309 @@ class TestFSM(unittest.TestCase):
               (s1,  'exit'),
               ], strict=True))
 
+class TestDemux(unittest.TestCase):
+    def setUp(self):
+        Trace.clear()
+
+    def test_demux(self):
+        '''Demux two simple StateMachines'''
+        s1 = State('s1')
+        s2 = State('s2')
+        fs = FinalState()
+
+        sm = StateMachine(s1 >> 'a' >> s2 >> 'b' >> fs, 
+                          demux=lambda event: (event[0], event[1]))
+
+        trace((s1,s2,fs), transitions=False)
+
+        sm.start()
+        # At this stage no SMStates have been created
+
+        sm.post((1, 'a'))   # will move instance '1' to s2
+        self.assertTrue(sm.settle(.1))
+        self.assertTrue(Trace.contains(
+            [ (s1, 'entry'), 
+              (s2, 'entry'), ], key=1))
+        self.assertFalse(Trace.contains(
+            [ (s2, 'entry') ], key=2, show_on_fail=False))
+
+        sm.post((1, 'a'))   # ignored by instance '1'
+        self.assertTrue(sm.settle(.1))
+        self.assertFalse(Trace.contains(
+            [ (s2, 'entry') ], key=2, show_on_fail=False))
+
+        sm.post((2, 'a'))   # will create instance '2'
+        self.assertTrue(sm.settle(.1))
+        self.assertTrue(Trace.contains(
+            [ (s1, 'entry'), 
+              (s2, 'entry'), ], key=2))
+
+        sm.post((2, 'b'))   # will cause '2' to finish
+        self.assertFalse(sm.join(.1))
+
+        sm.post((1, 'b'))   # will cause '1' to finish
+        # The SM will _not_ terminate (it will wait for new events to be posted)
+        self.assertFalse(sm.join(.1))
+
+        sm.post((1, 'a'))   # A new '1' instance is created
+        self.assertTrue(sm.settle(.1))
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'), 
+              (s2, 'entry'), ], key=1))
+
+        # When sm.stop() is called, it is effective regardless of whether there 
+        # are any active SMStates.
+        sm.stop()
+        self.assertTrue(sm.join(.1))
+
+    def test_demux_timeout(self):
+        '''SM multi-instances have independent timeouts.'''
+        s0 = State('s0')
+        s1 = State('s1')
+        s2 = State('s2')
+        fs = FinalState()
+
+        sm = StateMachine(s0 >> 'a' >> s1 >> Timeout(.1) >> s2 >> Timeout(.1) >> fs, 
+                          demux=lambda event: (event[0], event[1]))
+
+        trace((s1,s2,fs), transitions=False)
+
+        sm.start()
+
+        sm.post((1, 'a'))   # Starts first SM
+        sm.settle(.1)
+        time.sleep(.11)
+
+        # instance '1' will have reached s2
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry') ], key=1 ))
+        self.assertFalse(Trace.contains(
+            [ (s2, 'entry'),], key=2, show_on_fail=False ))
+
+        sm.post((2, 'a'))   # Start 2nd SM
+        sm.settle(.1)
+        time.sleep(.11)
+
+        # instance '1' should be complete, and '2' should have reached s2
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'), (fs, 'entry') ], key=1))
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),], key=2 ))
+        self.assertFalse(Trace.contains(
+            [ (fs, 'entry')], key=2, show_on_fail=False ))
+        
+        time.sleep(.1)
+        self.assertTrue(Trace.contains(
+            [ (fs, 'entry')], key=2 ))
+
+        sm.stop()
+        self.assertTrue(sm.join(.1))
+
+    def test_history(self):
+        '''Test history State with Muxed StateMachine'''
+        s1 = State('s1') 
+        s2 = State('s2')
+        h = HistoryState(parent=s1)
+        s11 = State('s11', parent=s1, initial=True)
+        s111 = State('s111', parent=s11, initial=True)
+        s112 = State('s112', parent=s11)
+
+        s12 = State('s12', parent=s1)
+        s13 = State('s13', parent=s1)
+        fs = FinalState()
+
+        s2 >> 'a' >> h
+        s11 >> 'b' >> s12 >> 'c' >> s13 >> 'd' >> s11
+        s1 >> 'e' >> s2
+        s2 >> 'f' >> fs
+        
+        s111 >> 'g' >> s112
+
+        trace((s1, s2, s11, s111, s112, s12, s13, fs))
+        sm = StateMachine(s2, s1, fs,
+                          demux=lambda event: (event[0], event[1]))
+        #sm.graph()
+        sm.start()
+
+        sm.post((1,'a'), (2,'a'),
+                (1,'b'), (2,'g'),
+                (1,'c'), (2,'e'),
+                (1,'d'), (2,'a'),
+                (1,'b'), (2,'b'),
+                (1,'e'), (2,'e'),
+                (1,'a'), (2,'f'),
+                (1,'e'),
+                (1,'f'),)
+
+        sm.settle(.1)
+
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s11, 'entry'),
+              (s11, 'exit'),    #b
+              (s12, 'entry'),
+              (s12, 'exit'),    #c
+              (s13, 'entry'),
+              (s13, 'exit'),    #d
+              (s11, 'entry'),
+              (s11, 'exit'),    #b
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #f
+              (fs, 'entry') ], key=1))
+
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s11, 'entry'),
+              (s111, 'entry'),
+              (s111, 'exit'),   #g
+              (s112, 'entry'),
+              (s112, 'exit'),    #e
+              (s11,  'exit'),
+              (s1,   'exit'),
+              (s2,   'entry'),
+              (s2,   'exit'),   #a
+              (s1,   'entry'),
+              (s11,   'entry'),
+              (s111,   'entry'),
+              (s111,   'exit'), #b
+              (s11,   'exit'),
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #f
+              (fs, 'entry') ], key=2))
+
+    def test_deep_history(self):
+        '''Test deep history State with Muxed StateMachine'''
+        s1 = State('s1') 
+        s2 = State('s2')
+        h = DeepHistoryState(parent=s1)
+        s11 = State('s11', parent=s1, initial=True)
+        s111 = State('s111', parent=s11, initial=True)
+        s112 = State('s112', parent=s11)
+
+        s12 = State('s12', parent=s1)
+        s13 = State('s13', parent=s1)
+        fs = FinalState()
+
+        s2 >> 'a' >> h
+        s11 >> 'b' >> s12 >> 'c' >> s13 >> 'd' >> s11
+        s1 >> 'e' >> s2
+        s2 >> 'f' >> fs
+        
+        s111 >> 'g' >> s112
+
+        trace((s1, s2, s11, s111, s112, s12, s13, fs))
+        sm = StateMachine(s2, s1, fs,
+                          demux=lambda event: (event[0], event[1]))
+        #sm.graph()
+        sm.start()
+
+        sm.post((1,'a'), (2,'a'),
+                (1,'b'), (2,'g'),
+                (1,'c'), (2,'e'),
+                (1,'d'), (2,'a'),
+                         (2,'b'),
+                (1,'e'), (2,'e'),
+                (1,'a'), (2,'f'),
+                (1,'e'),
+                (1,'f'),)
+
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s11, 'entry'),
+              (s11, 'exit'),    #b
+              (s12, 'entry'),
+              (s12, 'exit'),    #c
+              (s13, 'entry'),
+              (s13, 'exit'),    #d
+              (s11, 'entry'),
+              (s111, 'entry'),
+              (s111, 'exit'),   #e
+              (s11, 'exit'),
+              (s1, 'exit'),
+              (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s1, 'entry'),
+              (s11, 'entry'),
+              (s111, 'entry'),
+              (s111, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #f
+              (fs, 'entry') ], key=1))
+
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry'),
+              (s2, 'exit'),     #a
+              (s11, 'entry'),
+              (s111, 'entry'),
+              (s111, 'exit'),   #g
+              (s112, 'entry'),
+              (s112, 'exit'),    #e
+              (s11,  'exit'),
+              (s1,   'exit'),
+              (s2,   'entry'),
+              (s2,   'exit'),   #a
+              (s1,   'entry'),
+              (s11,   'entry'),
+              (s112,   'entry'),
+              (s112,   'exit'), #b
+              (s11,   'exit'),
+              (s12, 'entry'),
+              (s12, 'exit'),    #e
+              (s2, 'entry'),
+              (s2, 'exit'),     #f
+              (fs, 'entry') ], key=2))
+        sm.stop()
+
+    def test_terminate(self):
+        '''Terminate State independence.'''
+        s1 = State('s1') 
+        s2 = State('s2') 
+        ts = TerminateState()
+
+        trace((s1, s2, ts))
+        sm = StateMachine(s1 >> 'a' >> s2 >> 'b' >> ts,
+                          demux=lambda event: (event[0], event[1]))
+        sm.start()
+
+        sm.post((1, 'a'), (2, 'a'), (1, 'b'))
+
+        sm.settle(.1)
+
+        self.assertTrue(Trace.contains(
+            [ (ts, 'entry') ], key=1))
+        self.assertFalse(Trace.contains(
+            [ (ts, 'exit') ], key=1, show_on_fail=False))
+        self.assertTrue(Trace.contains(
+            [ (s2, 'entry') ], key=2))
+        self.assertFalse(Trace.contains(
+            [ (ts, 'entry') ], key=2, show_on_fail=False))
+        
+        self.assertFalse(sm.join(.1))
+
+        sm.post((2, 'b'))
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ (ts, 'entry') ], key=1))
+        self.assertFalse(Trace.contains(
+            [ (ts, 'exit') ], key=1, show_on_fail=False))
+
+        self.assertFalse(sm.join(.1))
+
+        sm.stop()
+        self.assertTrue(sm.join(.1))
+        
 if __name__ == '__main__':
     unittest.main()
 
