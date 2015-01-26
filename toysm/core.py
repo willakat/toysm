@@ -479,6 +479,7 @@ class HistoryState(PseudoState):
             LOG.debug('%s - Following transition to saved sate %s',
                       self, saved)
             _, saved_state_entry_transitions = saved.get_entry_transitions(sm)
+            #pylint: disable=protected-access
             return True, [Transition(source=self, target=saved,
                                      kind=Transition._ENTRY)] \
                          + saved_state_entry_transitions
