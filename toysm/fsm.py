@@ -107,8 +107,6 @@ class SMState(object):
         self._sm = sm
         self._state = {}
         self.key = key
-        self._history = {}  # dictionary in which history states
-                            # persist information for their SMState.
 
     def __getattr__(self, name):
         return getattr(self._sm, name)
