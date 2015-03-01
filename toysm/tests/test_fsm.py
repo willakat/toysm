@@ -1087,6 +1087,94 @@ class TestDemux(unittest.TestCase):
         sm.stop()
         self.assertTrue(sm.join(2 * StateMachine.MAX_STOP_WAIT))
         
+class TestDoActivity(unittest.TestCase):
+    def setUp(self):
+        Trace.clear()
+
+    def test_simple(self):
+        '''Do activity triggered when state is entered.'''
+        def do_trace(sm, state, _):
+            Trace.add(state, 'do')
+        s1 = State('s1', do=do_trace)
+
+        trace((s1,))
+        sm = StateMachine(s1 >> FinalState())
+
+        sm.start()
+        sm.join(.1)
+        self.assertTrue(Trace.contains([(s1, 'do')]))
+
+        # 'do' should only have been called once
+        self.assertFalse(Trace.contains([(s1, 'do')]*2, show_on_fail=False))
+
+    # test wait on exit_required event
+    def test_wait_on_exit_required(self):
+        '''Exit required event can be used to "sleep" during the
+           do-action without blocking the StateMachine'''
+        def do_trace(sm, state, ex_req):
+            while not ex_req.is_set():
+                Trace.add(state, 'do')
+                ex_req.wait(1)
+            Trace.add(state, 'do-exit')
+        s1 = State('s1', do=do_trace)
+        trace((s1,))
+        sm = StateMachine(s1 >> 'a' >> FinalState())
+        sm.start()
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(s1, 'entry'), (s1, 'do')]))
+        self.assertFalse(Trace.contains([(s1, 'do-exit')], show_on_fail=False))
+
+        # Post 'a' to force exit of the state
+        sm.post('a')
+        sm.settle(.1)   # here we are settling for a duration shorter than the 
+                        # the amount of time the do-activity is "sleeping".
+        self.assertTrue(Trace.contains([(s1, 'do-exit'), (s1, 'exit')]))
+        sm.join(.1)
+
+    # test return True (for looping)
+    def test_loop(self):
+        '''Test looping behavior when do-activity fn returns True'''
+        def do_trace(sm, state, _):
+            Trace.add(state, 'do')
+            return True
+        s1 = State('s1', do=do_trace)
+        trace((s1,))
+        sm = StateMachine(s1 >> 'a' >> FinalState())
+        sm.start()
+
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(s1, 'entry')] + [(s1, 'do')]*2))
+
+        sm.post('a')
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(s1, 'exit')]))
+        self.assertFalse(Trace.contains([(s1, 'exit'), (s1, 'do')], show_on_fail=False))
+        sm.join(.1)
+
+    # State only exits when the thread has been stopped.
+    def test_exit_after_activity_stopped(self):
+        '''State only exits once the thread running the do-activity has
+           stopped.'''
+        import time
+        delay = .5
+        def do_trace(sm, state, _):
+            time.sleep(delay)
+            Trace.add(state, 'activity_done')
+
+        s1 = State('s1', do=do_trace)
+        trace((s1,))
+        sm = StateMachine(s1 >> 'a' >> FinalState())
+        sm.post('a')
+        sm.start()
+        self.assertFalse(Trace.contains([(s1, 'activity_done')], show_on_fail=False))
+        self.assertFalse(Trace.contains([(s1, 'exit')], show_on_fail=False))
+        sm.join(2 * delay)
+        self.assertTrue(Trace.contains([(s1, 'activity_done'), (s1, 'exit')]))
+
+    # test do-activity in parallel state
+
+    # test completion only after do-activity finishes
+
 if __name__ == '__main__':
     unittest.main()
 

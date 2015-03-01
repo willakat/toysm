@@ -24,6 +24,7 @@
 # pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
 # pylint: disable=invalid-name
 
+from threading import Thread, Event
 from inspect import isclass
 from six import with_metaclass
 from toysm.public import public
@@ -39,6 +40,15 @@ class IllFormedException(Exception):
     '''
     pass
 
+class _StateDescriptor(object):
+    '''Holder for the dynamic components of a State.'''
+    def __init__(self, copy=None):
+        self.active_substate = None
+        self.do_thread = None
+        self.exit_required = None
+        self.activity_complete = True
+        if copy:
+            self.active_substate = copy.active_substate
 
 @public
 class State(object):
@@ -51,11 +61,45 @@ class State(object):
         'label': lambda s: s.name or ''
     }
 
+    # Factory method that yields a holder for the dynamic part of the State.
+    _descriptor_type = _StateDescriptor
+
     def __init__(self, name=None, sexp=None, parent=None, initial=False,
-                 on_enter=None, on_exit=None):
+                 on_enter=None, on_exit=None, do=None):
+        '''
+        Parameters:
+        name      A name for the state
+
+        sexp      A State expression. All the states present in the expression
+                  will be added as childred of this State. The first state
+                  in the expression will be considered the initial state.
+
+        parent    Parent of this state.
+
+        initial   when parent is also used, then this State will be
+                  the initial state of the parent.
+
+        on_enter  function called whenever the state is entered. The
+                  the following arguments (sm, state) where sm is the
+                  current StateMachine and state is the State being
+                  entered.
+
+        on_exit   function called whenever the state is exited. The same
+                  arguments are passed into the function as with on_enter.
+
+        do        function representing the do-activity of this state,
+                  it will be run on deidicated thread. the function is called
+                  with the following arguments (sm, state, event),
+                  where sm and state are as in on_enter. The event argument
+                  is an Event object that will be set if the StateMachine needs
+                  to exit the state. It can therefore be used to wait on
+                  in the function without blocking the StateMachine.
+                  The function should return a 'True' value if it needs
+                  to be called repetitively (loop). As soon as any 'False'
+                  value is returned, the do-activity is considered complete.
+        '''
         super(State, self).__init__()
         self.transitions = []
-        self.dflt_transition = None
         self.name = name
         self.initial = None # Initial substate (if any)
         self.children = set()
@@ -73,6 +117,10 @@ class State(object):
             self.add_hook('pre_entry', on_enter)
         if on_exit:
             self.add_hook('post_exit', on_exit)
+        self.do_activity = do
+        if do:
+            self.add_hook('post_entry', self.start_do_activity)
+            self.add_hook('pre_exit', self.stop_do_activity)
 
     def get_enabled_transitions(self, sm, evt):
         '''Return transitions from the state for the given event, or None
@@ -81,7 +129,7 @@ class State(object):
         LOG.debug("%s - get_enabled_transitions for %r", self, evt)
         # children transitions have a higher priority
         if evt:
-            active_substate = sm.retrieve_state(self)
+            active_substate = sm.retrieve_state(self).active_substate
             if active_substate:
                 substate_transitions = \
                     active_substate.get_enabled_transitions(sm, evt)
@@ -126,12 +174,15 @@ class State(object):
             return True, []
 
     def child_completed(self, sm, child):
-        '''Called when this state's active subste (if any) completes.'''
+        '''Called when this state's active substate (if any) completes.'''
         pass
 
     def _call_hooks(self, sm, kind):
         '''Calls the hooks registered for 'kind'.'''
+        if LOG.isEnabledFor(logging.DEBUG) and self.hooks[kind]:
+            LOG.debug("%s - calling %s hooks", self, kind)
         for hook in self.hooks[kind]:
+            LOG.debug(hook)
             h, args, kargs = hook
             h(sm, self, *args, **kargs)
 
@@ -159,7 +210,14 @@ class State(object):
            This method is intended to be overriden for state
            specificities.
         '''
-        if not self.children:
+        if not (self.children or self.do_activity):
+            self._check_completion(sm)
+
+    def _check_completion(self, sm):
+        '''Posts a completion event if the State is considered
+           to have completed, i.e. if a do-activity is defined
+           then it has completed.'''
+        if sm.retrieve_state(self).activity_complete:
             sm.post_completion(self)
 
     def on_exit(self, sm):
@@ -184,10 +242,37 @@ class State(object):
         '''Perform custom actions for a state when the
            StateMachine moves out of this state.
         '''
-        active_substate = sm.retrieve_state(self)
+        desc = sm.retrieve_state(self)
+        active_substate = desc.active_substate
         if active_substate:
             active_substate._exit(sm)  # pylint: disable=protected-access
-            active_substate = None
+
+    def start_do_activity(self, sm, _):
+        '''Start the State's do-activity thread.'''
+        do_activity = self.do_activity
+        desc = sm.retrieve_state(self)
+        desc.activity_complete = False
+        exit_required = desc.exit_required = Event()
+        def do():
+            '''target for the do-activity Thread.'''
+            while not exit_required.is_set():
+                if not do_activity(sm, self, exit_required):
+                    desc.activity_complete = True
+                    self._check_completion(sm)
+                    break
+            desc.do_thread = None
+        desc.do_thread = Thread(target=do)
+        LOG.debug("%s - Starting do-activity", self)
+        desc.do_thread.start()
+
+    def stop_do_activity(self, sm, _):
+        '''Stop the State's do-activity thread.'''
+        desc = sm.retrieve_state(self)
+        do_thread = desc.do_thread
+        if do_thread:
+            LOG.debug("%s - Waiting for do-activity to exit", self)
+            desc.exit_required.set()
+            do_thread.join()
 
     def add_transition(self, t):
         '''Sets this state as the source of Transition t.'''
@@ -252,17 +337,20 @@ class State(object):
         self.hooks[kind].append((hook, args, kargs))
 
     def set_active_substate(self, sm, state):
-        sm.store_state(self, state)
+        '''Set this state's active substate.'''
+        assert not isinstance(state, PseudoState), \
+            'PseudoStates cannot be active substates'
+        sm.retrieve_state(self).active_substate = state
 
     def get_active_states(self, sm):
-        '''Return an iterator over the active substates of the state
-           the method is called on. The result will include the state
+        '''Return an iterator over the active substates of the State
+           the method is called on. The result will include the State
            itself.
         '''
-        active_substate = sm.retrieve_state(self)
-        yield (self, active_substate)
-        if active_substate:
-            for i in active_substate.get_active_states(sm):
+        desc = sm.retrieve_state(self)
+        yield (self, self._descriptor_type(desc))
+        if desc.active_substate:
+            for i in desc.active_substate.get_active_states(sm):
                 yield i
 
     def restore_state(self, sm, saved):
@@ -283,11 +371,22 @@ class State(object):
         return _StateExpression(self) << other
 
 
+class _ParallelStateDescriptor(_StateDescriptor):
+    '''Holder for the dynamic components of a State.'''
+    def __init__(self, copy=None):
+        super(_ParallelStateDescriptor, self).__init__()
+        del self.active_substate
+        if copy:
+            self.still_running_children = copy.still_running_children.copy()
+
 @public
 class ParallelState(State):
     '''State containing several "parallel" regions that execute
        independently.
     '''
+
+    _descriptor_type = _ParallelStateDescriptor
+
     def __init__(self, *args, **kargs):
         super(ParallelState, self).__init__(*args, **kargs)
         self._history = set()
@@ -304,11 +403,8 @@ class ParallelState(State):
                                          "ParallelState")
 
     def get_enabled_transitions(self, sm, evt):
-        '''Returns the list of transitions enable for a given event on
-           this state.
-        '''
         substate_transitions = []
-        still_running_children = sm.retrieve_state(self)
+        still_running_children = sm.retrieve_state(self).still_running_children
         for c in still_running_children:
             substate_transitions += c.get_enabled_transitions(sm, evt)
         if substate_transitions:
@@ -328,36 +424,33 @@ class ParallelState(State):
         return True, transitions
 
     def child_completed(self, sm, child):
-        still_running_children = sm.retrieve_state(self)
-        still_running_children.remove(child)
-        if not still_running_children:
-            # All children states/regions have completed
-            sm.post_completion(self)
+        sm.retrieve_state(self).still_running_children.remove(child)
+        self._check_completion(sm)
+
+    def _check_completion(self, sm):
+        # All children states/regions have completed
+        if not sm.retrieve_state(self).still_running_children:
+            super(ParallelState, self)._check_completion(sm)
 
     def _enter_actions(self, sm):
-        LOG.debug('pstate children %s', self.children)
-        sm.store_state(self, self.children - self._history)
+        sm.retrieve_state(self).still_running_children = \
+            self.children - self._history
 
     def _exit_actions(self, sm):
         for c in self.children - self._history:
             c._exit(sm)         #pylint: disable=protected-access
 
     def get_active_states(self, sm):
-        '''Return an iterator over the active substates of the state
-           the method is called on. The result will include the state
-           itself.
-        '''
-        still_running_children = sm.retrieve_state(self)
-        yield (self, still_running_children.copy())
+        desc = sm.retrieve_state(self)
+        still_running_children = desc.still_running_children
+        yield (self, self._descriptor_type(desc))
         for i in still_running_children:
             for j in i.get_active_states(sm):
                 yield j
 
-    def restore_state(self, sm, saved):
-        sm.store_state(self, saved)
-
     def set_active_substate(self, sm, state):
         pass
+        #assert False, "Internal error: can't set active substate on Parallel state"
 
 
 @public
@@ -374,16 +467,24 @@ class PseudoState(State):
         'margin': 0,
     }
 
+    # Mask _descriptor_type from State (no do-activities or substates)
+    _descriptor_type = None
+
     #specifies whether the PseudoState is allowed to be the terminal
     #node in a (potentially compound) transition.
     transition_terminal = False
 
     def __init__(self, name=None, initial=False, **kargs):
+        if 'do' in kargs:
+            raise IllFormedException('PseudoStates may not have a "do" action.')
         super(PseudoState, self).__init__(name=name, initial=False, **kargs)
 
     def _enter_actions(self, sm):
         # overloading _enter_actions will prevent completion events
         # from being generated for PseudoStates
+        pass
+
+    def _exit_actions(self, sm):
         pass
 
     def get_enabled_transitions(self, sm, evt):
@@ -469,8 +570,7 @@ class HistoryState(PseudoState):
 
     def save_state(self, sm, *_):
         '''Callback when the HistoryState's parent state is exited.'''
-        sm.store_state(self, sm.retrieve_state(self.parent))
-        # TODO: implicit expectation that retrieve_state returns a State object
+        sm.store_state(self, sm.retrieve_state(self.parent).active_substate)
 
     def get_entry_transitions(self, sm):
         LOG.debug('Entering history state of %s', self.parent)
@@ -528,6 +628,7 @@ class DeepHistoryState(HistoryState):
             for (s, _) in saved[1:]:
                 # sm already has the saved states, all we need to
                 # do here is re-enter all of them.
+                #s.restore_state(sm, desc)
                 s._enter(sm)
 
 

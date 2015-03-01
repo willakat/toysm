@@ -12,9 +12,9 @@ x: done
   eval currently in place for Junctions)
 - fork/join pseudostates
 - entry/exit pseudostates
+- threaded state (UML do-activity)
 
 ## Features
-- threaded state
 - implement StateMachine pause function
 ? before starting a state machine, check that all states (aside
   from the root state) have a parent. This actually can be 

@@ -5,6 +5,7 @@ List of features supported in ToySM
 -----------------------------------
 * UML2 features:
   - Hierarchical states
+  - enter/exit/do activities
   - Orthogonal regions (ParallelStates)
   - Transitions and Compound Transitions
   - Pseudostates
@@ -34,12 +35,12 @@ What's still missing
   - Representation of Exit/Enter PseudoStates
   - Fork and Join PseudoStates
   - Event deferral
-  - 'do' behavior for states (likely implementation will spawn a thread
-     when a State with a do behavior is entered).
 
 * Better graphing for Hierarchical states
 
 * StateMachine Pause function
+
+* Documentation :-)
 
 
 Dependencies
