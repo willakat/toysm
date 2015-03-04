@@ -156,7 +156,7 @@ class StateMachine(object):
                 version from the function.
         '''
         allowed_kargs = {'demux'}
-        if not kargs.keys() <= allowed_kargs:
+        if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
                             (list(kargs - allowed_kargs)))
         if states:
@@ -250,7 +250,7 @@ class StateMachine(object):
                   SMState should be used.
         '''
         allowed_kargs = {'sm_state'}
-        if not kargs.keys() <= allowed_kargs:
+        if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
                             (list(kargs - allowed_kargs)))
         self._settled.clear()
