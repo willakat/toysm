@@ -24,7 +24,7 @@
 # pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
 # pylint: disable=invalid-name
 
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 from inspect import isclass
 from six import with_metaclass
 from toysm.public import public
@@ -43,12 +43,20 @@ class IllFormedException(Exception):
 class _StateDescriptor(object):
     '''Holder for the dynamic components of a State.'''
     def __init__(self, copy=None):
-        self.active_substate = None
+        if copy:
+            self.active_substate = copy.active_substate
+        else:
+            self.active_substate = None
+
+        # The following are used when the State has a do-activity
         self.do_thread = None
         self.exit_required = None
         self.activity_complete = True
-        if copy:
-            self.active_substate = copy.active_substate
+
+        # The following are used when a State both has children and a do-activity
+        self.final_reached = False
+        self.complete = False
+        self.lock = None
 
 @public
 class State(object):
@@ -174,8 +182,13 @@ class State(object):
             return True, []
 
     def child_completed(self, sm, child):
-        '''Called when this state's active substate (if any) completes.'''
+        '''Called when a child State completes.'''
         pass
+
+    def reached_final(self, sm):
+        '''Called when this State's active substate reaches a FinalState.'''
+        sm.retrieve_state(self).final_reached = True
+        self._check_completion(sm)
 
     def _call_hooks(self, sm, kind):
         '''Calls the hooks registered for 'kind'.'''
@@ -210,14 +223,28 @@ class State(object):
            This method is intended to be overriden for state
            specificities.
         '''
-        if not (self.children or self.do_activity):
+        if self.children:
+            if self.do_activity:
+                desc = sm.retrieve_state(self)
+                desc.final_reached = False
+                desc.complete = False
+        else:
             self._check_completion(sm)
 
     def _check_completion(self, sm):
         '''Posts a completion event if the State is considered
            to have completed, i.e. if a do-activity is defined
-           then it has completed.'''
-        if sm.retrieve_state(self).activity_complete:
+           then it has completed and children have reached a
+           FinalState.'''
+        if self.do_activity and self.children:
+            desc = sm.retrieve_state(self)
+            with desc.lock:
+                if (    not desc.complete
+                    and desc.activity_complete
+                    and desc.final_reached):
+                    desc.complete = True
+                    sm.post_completion(self)
+        else:
             sm.post_completion(self)
 
     def on_exit(self, sm):
@@ -252,6 +279,8 @@ class State(object):
         do_activity = self.do_activity
         desc = sm.retrieve_state(self)
         desc.activity_complete = False
+        if desc.lock is None and self.children:
+            desc.lock = Lock()
         exit_required = desc.exit_required = Event()
         def do():
             '''target for the do-activity Thread.'''
@@ -655,7 +684,7 @@ class FinalState(_SinkState):
         'margin': 0,
     }
     def _enter_actions(self, sm):
-        sm.post_completion(self.parent)
+        self.parent.reached_final(sm)
 
 
 @public

@@ -341,6 +341,7 @@ class StateMachine(object):
             transitions = state.get_enabled_transitions(sm_state, None)
             if transitions:
                 self._step(evt=None, sm_state=sm_state, transitions=transitions)
+            LOG.debug('%s - done with completion transitions for %s', self, state)
             if state.parent:
                 state.parent.child_completed(sm_state, state)
             else:
@@ -423,6 +424,7 @@ class StateMachine(object):
                     self._process_next_event()
             LOG.debug('%s - end of loop, remaining events %r',
                       self, self._event_queue.queue)
+        LOG.debug('%s - State machine done', self)
         self._thread = None
 
     def _step(self, sm_state, evt, transitions=None):
@@ -552,6 +554,7 @@ class StateMachine(object):
 
 
 if __name__ == "__main__":
+    # TODO: replace this section with a decent example...
     #pylint: disable=pointless-statement, expression-not-assigned
     from toysm import Timeout, HistoryState, FinalState
     #s = State()

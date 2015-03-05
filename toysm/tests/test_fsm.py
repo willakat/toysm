@@ -6,7 +6,7 @@
 #
 # This file is part of ToySM.
 # 
-# ToySM Extensions is free software: you can redistribute it and/or modify
+# ToySM is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
@@ -1171,9 +1171,43 @@ class TestDoActivity(unittest.TestCase):
         sm.join(2 * delay)
         self.assertTrue(Trace.contains([(s1, 'activity_done'), (s1, 'exit')]))
 
+    # test completion only after do-activity finishes
+    def test_completion_do_then_children(self):
+        '''State exits once the activity is complete and children exit.'''
+        delay = .5
+        def do_trace(sm, state, _):
+            Trace.add(state, 'do')
+        s11 = State('s11')
+        s1 = State('s1', s11 >> Timeout(delay) >> FinalState(), do=do_trace)
+        trace((s1, s11))
+        sm = StateMachine(s1 >> FinalState())
+        sm.start()
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(s1, 'do')]))
+        self.assertFalse(Trace.contains([(s1, 'exit')], show_on_fail=False))
+        sm.join(2*delay)
+        self.assertTrue(Trace.contains([(s1, 'do'), (s11, 'exit'), (s1, 'exit')]))
+
+    def test_completion_children_then_do(self):
+        '''State exits once the activity is complete and children exit.'''
+        import time
+        delay = .5
+        def do_trace(sm, state, _):
+            time.sleep(delay)
+            Trace.add(state, 'done do-activity')
+        s11 = State('s11')
+        s1 = State('s1', s11 >> FinalState(), do=do_trace)
+        trace((s1, s11))
+        sm = StateMachine(s1 >> FinalState())
+        sm.start()
+        sm.settle(.1)
+        self.assertFalse(Trace.contains([(s1, 'done do-activity')], show_on_fail=False))
+        self.assertTrue(Trace.contains([(s11, 'exit')]))
+        sm.join(2*delay)
+        self.assertTrue(Trace.contains([(s11, 'exit'), (s1, 'done do-activity'), (s1, 'exit')]))
+
     # test do-activity in parallel state
 
-    # test completion only after do-activity finishes
 
 if __name__ == '__main__':
     unittest.main()
