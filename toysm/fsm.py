@@ -39,7 +39,7 @@ except ImportError:
 import sched
 import time
 import subprocess
-from threading import Thread, Event
+from threading import Thread
 import sys
 
 from toysm.core import State, ParallelState, InitialState, Transition, \
@@ -405,8 +405,10 @@ class StateMachine(object):
                     self._sched.run()
                 else:
                     self._process_next_event()
-            LOG.debug('%s - end of loop, remaining events %r',
-                      self, self._event_queue._queue)
+            if LOG.isEnabledFor(logging.DEBUG):
+                LOG.debug('%s - end of loop, remaining events %r',
+                          self, 
+                          [e for (_, _, e) in sorted(self._event_queue._queue)])
         self._thread = None
 
     def _step(self, sm_state, evt, transitions=None):
