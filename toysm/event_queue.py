@@ -79,7 +79,7 @@ class EventQueue:
            next event, or when timeout has expired.
            returns True if the queue is empty.'''
         with self._lock:
-            if self._queue:
+            if self._queue or self._consumers == 0:
                 self._settled.wait(timeout)
             return not bool(self._queue) and self._consumers > 0
 
