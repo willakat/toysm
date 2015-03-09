@@ -169,7 +169,7 @@ class StateMachine(object):
             self._cstate = State(sexp=cstate)
         # Event Queue shared by all instances of the State Machine
         # Queue elements are (SMState, evt) tuples
-        self._event_queue = queue.Queue()
+        self._event_queue = EventQueue(dflt_prio=STD_EVENT)
 
         # Set of states that have just completed (and need their
         # completion transtions, if any, performed).
@@ -185,7 +185,6 @@ class StateMachine(object):
             self._v3sched = False
         self._terminated = False
         self._thread = None
-        self._settled = Event()
         self._demux = kargs.get('demux')
         if self._demux:
             self._sm_instances = {}
@@ -222,7 +221,7 @@ class StateMachine(object):
            I.e. it is in a 'stable' state (until new events are posted
            naturally).
         '''
-        settled = self._settled.wait(timeout)
+        settled = self._event_queue.settle(timeout)
         return settled
 
     def pause(self):
@@ -251,7 +250,6 @@ class StateMachine(object):
         if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
                             (list(kargs - allowed_kargs)))
-        self._settled.clear()
         for e in evts:
             if e is None:
                 # None events are used internally to indicate that the
@@ -293,7 +291,7 @@ class StateMachine(object):
 
     def _get_sm_state(self, evt, sm_state=None):
         def post_init_sm_state(sm_state):
-            self._event_queue.put((sm_state, None))
+            self._event_queue.put((sm_state, None), INIT_EVENT)
 
         if sm_state is None:
             if self._demux:
@@ -343,35 +341,24 @@ class StateMachine(object):
         '''Wait for an event tobe posted to the SM and process it. Optionaly,
            return None if no event was posted before <t_max> is reached.
         '''
-        try:
-            # Non-blocking call, serves to both
-            # check if the queue is empty and
-            # to get the first element if not
-            evt = self._event_queue.get(False)
-        except queue.Empty:
-            # if the queue is empty, the StateMachine
-            # is considered to have settled, and
-            # we wait (up to delay) for an event
-            # to be posted.
-            self._settled.set()
-            while not self._terminated:
-                if t_max:
-                    t = time.time()
-                    if t >= t_max:
-                        # No events received within allocated delay
-                        return
-                    else:
-                        delay = min(t_max - t, self.MAX_STOP_WAIT)
+        while not self._terminated:
+            if t_max:
+                t = time.time()
+                if t >= t_max:
+                    # No events received within allocated delay
+                    return
                 else:
-                    delay = self.MAX_STOP_WAIT
-                try:
-                    evt = self._event_queue.get(True, delay)
-                    break
-                except queue.Empty:
-                    continue
+                    delay = min(t_max - t, self.MAX_STOP_WAIT)
             else:
-                # SM terminated before any new events received
-                return
+                delay = self.MAX_STOP_WAIT
+            try:
+                prio, evt = self._event_queue.get(delay)
+                break
+            except queue.Empty:
+                continue
+        else:
+            # SM terminated before any new events received
+            return
         # New event available, process it.
         assert evt
         sm_state, evt = evt
@@ -386,7 +373,6 @@ class StateMachine(object):
         else:
             transitions = None
         self._step(sm_state, evt, transitions=transitions)
-
 
     def _loop(self):
         '''State Machine loop, called by the SM's thread'''
@@ -413,7 +399,7 @@ class StateMachine(object):
                 else:
                     self._process_next_event()
             LOG.debug('%s - end of loop, remaining events %r',
-                      self, self._event_queue.queue)
+                      self, self._event_queue._queue)
         self._thread = None
 
     def _step(self, sm_state, evt, transitions=None):

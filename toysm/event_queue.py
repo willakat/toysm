@@ -32,24 +32,22 @@ except ImportError:
     # pylint: disable=import-error
     import Queue as queue
 
-# Event types/priorities
-COMPLETION_EVENT = 0
-INIT_EVENT = 1
-STD_EVENT = 2
-
 class EventQueue:
     '''Queue to store events posted to a StateMachine.'''
 
-    def __init__(self):
+    def __init__(self, dflt_prio=None):
         self._queue = []
         self._counter = 0
         self._lock = lock = Lock()
         self._evt_avail = Condition(lock)
         self._settled = Condition(lock)
         self._consumers = 0
+        self.dflt_prio = dflt_prio
 
-    def put(self, evt_data, prio=STD_EVENT):
+    def put(self, evt_data, prio=None):
         '''Adds the Event to the queue.'''
+        if prio is None:
+            prio = self.dflt_prio
         with self._lock:
             if not self._queue:
                 # Notify any thread waiting for a new event

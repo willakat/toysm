@@ -29,7 +29,8 @@ try:
 except ImportError:
     from Queue import Empty
 
-from toysm.event_queue import EventQueue, COMPLETION_EVENT, STD_EVENT, INIT_EVENT
+from toysm.event_queue import EventQueue
+from toysm.fsm import COMPLETION_EVENT, STD_EVENT, INIT_EVENT
 
 class TestEventQueue(unittest.TestCase):
     def test_ordering(self):
