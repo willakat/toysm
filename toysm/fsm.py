@@ -46,12 +46,19 @@ from toysm.core import State, ParallelState, InitialState, Transition, \
                        DeepHistoryState
 
 from toysm.public import public
+from toysm.event_queue import EventQueue
 
 import logging
 LOG = logging.getLogger(__name__)
 
+# Dot binaries / command lines
 DOT = 'dot'
 XDOT = 'xdot -'
+
+# Event types/priorities
+COMPLETION_EVENT = 0
+INIT_EVENT = 1
+STD_EVENT = 2
 
 def _bytes(string, enc='utf-8'):
     '''Returns bytes of the string argument. Compatible w/ Python 2
@@ -156,7 +163,7 @@ class StateMachine(object):
         allowed_kargs = {'demux'}
         if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
-                            (list(kargs - allowed_kargs)))
+                            (list(set(kargs.keys()) - allowed_kargs)))
         if states:
             self._cstate = State()
             self._cstate.add_state(cstate, initial=True)
@@ -249,7 +256,7 @@ class StateMachine(object):
         allowed_kargs = {'sm_state'}
         if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
-                            (list(kargs - allowed_kargs)))
+                            (list(set(kargs.keys()) - allowed_kargs)))
         for e in evts:
             if e is None:
                 # None events are used internally to indicate that the
