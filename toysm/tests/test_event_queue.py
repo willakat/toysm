@@ -38,8 +38,8 @@ class TestEventQueue(unittest.TestCase):
         l_in = [ 5, 4, 3, 2, 1]
         for e in l_in:
             q.put(e)
-        l_out = [q.get()[1] for x in xrange(len(l_in))]
-        self.assertEquals(l_in, l_out)
+        l_out = [q.get()[1] for x in range(len(l_in))]
+        self.assertEqual(l_in, l_out)
 
     def test_priorities(self):
         q = EventQueue()
@@ -49,11 +49,11 @@ class TestEventQueue(unittest.TestCase):
                  (COMPLETION_EVENT, 6) ]
         for (p, e) in l_in:
             q.put(e, p)
-        l_out = [q.get() for x in xrange(len(l_in))]
-        self.assertEquals(l_out, 
-                          filter(lambda e: e[0] == COMPLETION_EVENT, l_in) +
-                          filter(lambda e: e[0] == INIT_EVENT, l_in) + 
-                          filter(lambda e: e[0] == STD_EVENT, l_in))
+        l_out = [q.get() for x in range(len(l_in))]
+        self.assertEqual(l_out, 
+                         [e for e in l_in if e[0] == COMPLETION_EVENT] +
+                         [e for e in l_in if e[0] == INIT_EVENT] +
+                         [e for e in l_in if e[0] == STD_EVENT])
 
     def test_get_wait_fail(self):
         q = EventQueue()
@@ -69,7 +69,7 @@ class TestEventQueue(unittest.TestCase):
             time.sleep(.5)
             q.put('event')
         Thread(target=produce_evt).start()
-        self.assertEquals('event', q.get()[1])
+        self.assertEqual('event', q.get()[1])
 
     def test_settle(self):
         q = EventQueue()
