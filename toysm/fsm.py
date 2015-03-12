@@ -43,7 +43,7 @@ from threading import Thread
 import sys
 
 from toysm.core import State, ParallelState, InitialState, Transition, \
-                       DeepHistoryState
+                       DeepHistoryState, PseudoState
 
 from toysm.public import public
 from toysm.event_queue import EventQueue
@@ -120,7 +120,11 @@ class SMState(object):
 
     def retrieve_state(self, state):
         '''Returns the stored state for the given state.'''
-        return self._state.get(state)
+        desc = self._state.get(state)
+        #pylint: disable=protected-access
+        if desc is None and state._descriptor_type: 
+            self._state[state] = desc = state._descriptor_type()
+        return desc
 
     def store_state(self, state, stored_state):
         '''Saves the stored_state for the given state.'''
@@ -134,10 +138,10 @@ class SMState(object):
     def post_completion(self, state):
         '''Indicate that <state> in this State Machine instance has
            completed.'''
-
         self._sm.post_completion(state, sm_state=self)
 
     def stop(self):
+        '''Stops this StateMachine instance.'''
         self._sm.stop(sm_state=self)
 
 @public
@@ -292,15 +296,16 @@ class StateMachine(object):
             return [a] + a_path, b_path + [b]
 
     def _get_sm_state(self, evt, sm_state=None):
-        '''Returns the SMState based on <evt>'s key.
-           If <sm_state> is given, then it is the value returned.'''
+        '''Return the SMState (StateMachine instance) the 
+           evt event should be routed to.'''
         #FIXME: race-y with deletion. It is possible to have
         #       an event posted and the SMState could be deleted
         #       before the event is processed.
-        def post_init_sm_state(sm_state):
-            self._event_queue.put((sm_state, None), INIT_EVENT)
-
         if sm_state is None:
+            def post_init_sm_state(sm_state):
+                '''Primes the SMState with a 'None' event.'''
+                self._event_queue.put((sm_state, None), INIT_EVENT)
+
             if self._demux:
                 sm_key, evt = self._demux(evt)
                 sm_state = self._sm_instances.get(sm_key)
@@ -327,6 +332,22 @@ class StateMachine(object):
             if t >= t_wakeup:
                 break
             self._process_next_event(t_wakeup)
+
+    def _process_completion_events(self):
+        '''Processes all available completion events.'''
+        while not self._terminated and self._completed:
+            sm_state, state = self._completed.pop()
+            LOG.debug('%s - handling completion of %s', self, state)
+            transitions = state.get_enabled_transitions(sm_state, None)
+            if transitions:
+                self._step(evt=None, sm_state=sm_state, transitions=transitions)
+            LOG.debug('%s - done with completion transitions for %s', self, state)
+            if state.parent:
+                state.parent.child_completed(sm_state, state)
+            else:
+                # top level region completed.
+                state._exit(sm_state)   #pylint: disable=protected-access
+                self.stop(sm_state=sm_state)
 
     def _process_next_event(self, t_max=None):
         '''Wait for an event to be posted to the SM and process it. Optionaly,
@@ -411,6 +432,7 @@ class StateMachine(object):
                 LOG.debug('%s - end of loop, remaining events %r',
                           self,
                           [e for (_, _, e) in sorted(self._event_queue._queue)])
+        LOG.debug('%s - State machine done', self)
         self._thread = None
 
     def _step(self, sm_state, evt, transitions=None):
@@ -457,7 +479,10 @@ class StateMachine(object):
             for a, b in [(t_path[i], t_path[i+1])
                          for i in range(len(t_path) - 1)]:
                 if a is not None:
-                    a.set_active_substate(sm_state, b)
+                    if isinstance(b, PseudoState):
+                        a.set_active_substate(sm_state, None)
+                    else:
+                        a.set_active_substate(sm_state, b)
                 b._enter(sm_state)
         LOG.debug("%s - step complete for %r", self, evt)
 
@@ -537,6 +562,7 @@ class StateMachine(object):
 
 
 if __name__ == "__main__":
+    # TODO: replace this section with a decent example...
     #pylint: disable=pointless-statement, expression-not-assigned
     from toysm import Timeout, HistoryState, FinalState
     #s = State()
