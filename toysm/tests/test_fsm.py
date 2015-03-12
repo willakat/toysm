@@ -379,11 +379,13 @@ class TestFSM(unittest.TestCase):
             (s21, 'entry'),
             (s21, 'exit'),
             ]))
-        self.assertFalse(Trace.contains([(s2, 'exit')], show_on_fail=False))
+        self.assertFalse(Trace.contains([(s1, 'exit')], show_on_fail=False))
+        #self.assertTrue(Trace.contains([(s2, 'exit')]))
 
         sm.post('b')
         self.assertTrue(sm.join(1))
         self.assertTrue(Trace.contains([(s12, 'exit'), (s1, 'exit')]))
+        self.assertTrue(Trace.contains([(s1, 'exit')]))
         self.assertTrue(Trace.contains([(s2, 'exit')]))
 
     def test_history_state(self):
@@ -1136,13 +1138,13 @@ class TestDoActivity(unittest.TestCase):
         '''Test looping behavior when do-activity fn returns True'''
         def do_trace(sm, state, _):
             Trace.add(state, 'do')
+            time.sleep(.01)
             return True
         s1 = State('s1', do=do_trace)
         trace((s1,))
         sm = StateMachine(s1 >> 'a' >> FinalState())
         sm.start()
-
-        sm.settle(.1)
+        time.sleep(.1)
         self.assertTrue(Trace.contains([(s1, 'entry')] + [(s1, 'do')]*2))
 
         sm.post('a')
@@ -1206,8 +1208,52 @@ class TestDoActivity(unittest.TestCase):
         sm.join(2*delay)
         self.assertTrue(Trace.contains([(s11, 'exit'), (s1, 'done do-activity'), (s1, 'exit')]))
 
-    # test do-activity in parallel state
+    def test_pstate_completion_do_then_children(self):
+        '''Test parallel state completion if do activity completes before
+           the children regions.'''
+        def do_trace(sm, state, _):
+            Trace.add(state, 'do-activity')
+        p1 = ParallelState('p1', do=do_trace)
+        s11 = State('s11')
+        s1 = State('s1', s11 >> FinalState(), parent=p1)
+        s21 = State('s21')
+        s2 = State('s2', s21 >> 'a' >> FinalState(), parent=p1)
+        fs = FinalState()
+        trace((p1, s1, s11, s2, s21, fs))
+        sm = StateMachine(p1 >> fs)
+        sm.start()
+        sm.settle(.1)
+        self.assertFalse(Trace.contains([(fs, 'entry')], show_on_fail=False))
+        self.assertTrue(Trace.contains([(p1, 'do-activity')]))
+        sm.post('a')
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(fs, 'entry')]))
+        sm.join(.1)
 
+    def test_pstate_completion_children_then_do(self):
+        '''Test parallel state completion if children finish before
+           do activity.'''
+        delay = .5
+        def do_trace(sm, state, _):
+            time.sleep(delay)
+            Trace.add(state, 'done do-activity')
+        p1 = ParallelState('p1', do=do_trace)
+        s11 = State('s11')
+        s1 = State('s1', s11 >> FinalState(), parent=p1)
+        s21 = State('s21')
+        s2 = State('s2', s21 >> FinalState(), parent=p1)
+        fs = FinalState()
+        trace((p1, s1, s11, s2, s21, fs))
+        sm = StateMachine(p1 >> fs)
+        sm.start()
+        sm.settle(.1)
+        self.assertTrue(Trace.contains([(s1, 'entry'), (s11, 'exit')]))
+        self.assertTrue(Trace.contains([(s2, 'entry'), (s21, 'exit')]))
+        self.assertFalse(Trace.contains([(fs, 'enter')], show_on_fail=False))
+        self.assertFalse(Trace.contains([(p1, 'done do-activity')], show_on_fail=False))
+        sm.join(delay + .1)
+        self.assertTrue(Trace.contains([(fs, 'entry')]))
+        self.assertTrue(Trace.contains([(p1, 'done do-activity')]))
 
 if __name__ == '__main__':
     unittest.main()

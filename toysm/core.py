@@ -239,9 +239,9 @@ class State(object):
         if self.do_activity and self.children:
             desc = sm.retrieve_state(self)
             with desc.lock:
-                if (    not desc.complete
-                    and desc.activity_complete
-                    and desc.final_reached):
+                if (not desc.complete
+                        and desc.activity_complete
+                        and desc.final_reached):
                     desc.complete = True
                     sm.post_completion(self)
         else:
@@ -297,11 +297,12 @@ class State(object):
     def stop_do_activity(self, sm, _):
         '''Stop the State's do-activity thread.'''
         desc = sm.retrieve_state(self)
+        desc.exit_required.set()
         do_thread = desc.do_thread
         if do_thread:
             LOG.debug("%s - Waiting for do-activity to exit", self)
-            desc.exit_required.set()
             do_thread.join()
+            LOG.debug("%s - Do-activity tread stopped", self)
 
     def add_transition(self, t):
         '''Sets this state as the source of Transition t.'''
@@ -470,7 +471,9 @@ class ParallelState(State):
 
     def _check_completion(self, sm):
         # All children states/regions have completed
-        if not sm.retrieve_state(self).still_running_children:
+        desc = sm.retrieve_state(self)
+        if not desc.still_running_children:
+            desc.final_reached = True
             super(ParallelState, self)._check_completion(sm)
 
     def _enter_actions(self, sm):
