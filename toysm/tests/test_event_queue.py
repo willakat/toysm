@@ -91,6 +91,16 @@ class TestEventQueue(unittest.TestCase):
         q.get() # Queue will only settle at the next "get"
         self.assertFalse(q.settle(0))
 
+    def test_settle2(self):
+        q = EventQueue()
+        self.assertFalse(q.settle(0))
+        def consume_evt():
+            try:
+                q.get(.2)
+            except Empty: pass
+        Thread(target=consume_evt).start()
+        self.assertTrue(q.settle(.1))
+
 if __name__ == '__main__':
     unittest.main()
 
