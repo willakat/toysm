@@ -292,6 +292,8 @@ class StateMachine(object):
             return [a] + a_path, b_path + [b]
 
     def _get_sm_state(self, evt, sm_state=None):
+        '''Returns the SMState based on <evt>'s key.
+           If <sm_state> is given, then it is the value returned.'''
         #FIXME: race-y with deletion. It is possible to have
         #       an event posted and the SMState could be deleted
         #       before the event is processed.
@@ -354,7 +356,19 @@ class StateMachine(object):
          INIT_EVENT: self._process_init_event,
          STD_EVENT: self._process_std_event, }[prio](sm_state, evt)
 
+    def _process_init_event(self, sm_state, _):
+        '''Starts the state machine (i.e. initial state is entered).'''
+        # SMState needs to be initialized
+        # perform entry into the root region/state
+
+        # pylint: disable=protected-access
+        self._cstate._enter(sm_state)
+        # and trigger entry_transitions if any
+        _, transitions = sm_state._cstate.get_entry_transitions(sm_state)
+        self._step(sm_state, None, transitions=transitions)
+
     def _process_completion_event(self, sm_state, state):
+        '''Make the state machine evolve after completion of <state>.'''
         LOG.debug('%s - handling completion of %s', self, state)
         transitions = state.get_enabled_transitions(sm_state, None)
         self._step(evt=None, sm_state=sm_state, transitions=transitions)
@@ -365,17 +379,8 @@ class StateMachine(object):
             state._exit(sm_state)   #pylint: disable=protected-access
             self.stop(sm_state=sm_state)
 
-    def _process_init_event(self, sm_state, _):
-        # SMState needs to be initialized
-        # perform entry into the root region/state
-
-        # pylint: disable=protected-access
-        self._cstate._enter(sm_state)
-        # and trigger entry_transitions if any
-        _, transitions = sm_state._cstate.get_entry_transitions(sm_state)
-        self._step(sm_state, None, transitions=transitions)
-
     def _process_std_event(self, sm_state, evt):
+        '''Make the state machine evolve according to <evt>.'''
         self._step(sm_state, evt, transitions=None)
 
     def _loop(self):
@@ -402,8 +407,9 @@ class StateMachine(object):
                 else:
                     self._process_next_event()
             if LOG.isEnabledFor(logging.DEBUG):
+                # pylint: disable=protected-access
                 LOG.debug('%s - end of loop, remaining events %r',
-                          self, 
+                          self,
                           [e for (_, _, e) in sorted(self._event_queue._queue)])
         self._thread = None
 
