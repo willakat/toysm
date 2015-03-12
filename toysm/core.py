@@ -309,16 +309,28 @@ class State(object):
             raise IllFormedException('Transition %s cannot be added to %s '
                                      'because it already has a source'
                                      % (t, self))
+        if isinstance(self.parent, ParallelState):
+            raise IllFormedException('Parallel region %s cannot be '
+                                     'a transition source for %s'
+                                     %(self, t))
         t.source = self
         self.transitions.append(t)
 
     def accept_transition(self, t):
         '''Called when a transition designates the state as its target.'''
+        if isinstance(self.parent, ParallelState):
+            raise IllFormedException('Parallel region %s cannot be '
+                                     'a transition target for %s'
+                                     %(self, t))
         t.target = self
 
     def accept_parent(self, parent, initial):
         '''Called when this state's parent is set.'''
-        pass
+        if isinstance(parent, ParallelState) and self.transitions:
+            raise IllFormedException('State %s cannot be a parallel region '
+                                     'of %s because it is a transition '
+                                     'source/target.'
+                                     %(self, parent))
 
     def accept_substate(self, state, initial):
         '''Called when a substate is added to the state.'''
@@ -628,10 +640,30 @@ class DeepHistoryState(HistoryState):
     dot = HistoryState.dot.copy()
     dot['label'] = 'H*'
 
+    def add_transition(self, t):
+        if t.source is not None:
+            raise IllFormedException('Transition %s cannot be added to %s '
+                                     'because it already has a source'
+                                     % (t, self))
+        if isinstance(self.parent, ParallelState):
+            raise IllFormedException('DeepHistory state %s cannot be the source '
+                                     'of transition %s because parent is a '
+                                     'ParallelState.'
+                                     %(self, t))
+        #TODO: this is a repeat of code from State
+        t.source = self
+        self.transitions.append(t)
+
+    def accept_transition(self, t):
+        # It is acceptable for a DeepHistoryState to be the target
+        # of a transition, even when its parent is a ParallelState
+        t.target = self
+
     def accept_parent(self, parent, initial):
         if initial:
             raise IllFormedException("History state cannot be an initial state")
         parent.add_hook('pre_exit', self.save_state)
+
 
     def save_state(self, sm, *_):
         sm.store_state(self, list(self.parent.get_active_states(sm)))
