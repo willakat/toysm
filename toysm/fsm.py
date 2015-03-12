@@ -39,19 +39,26 @@ except ImportError:
 import sched
 import time
 import subprocess
-from threading import Thread, Event
+from threading import Thread
 import sys
 
 from toysm.core import State, ParallelState, InitialState, Transition, \
                        DeepHistoryState, PseudoState
 
 from toysm.public import public
+from toysm.event_queue import EventQueue
 
 import logging
 LOG = logging.getLogger(__name__)
 
+# Dot binaries / command lines
 DOT = 'dot'
 XDOT = 'xdot -'
+
+# Event types/priorities
+COMPLETION_EVENT = 0
+INIT_EVENT = 1
+STD_EVENT = 2
 
 def _bytes(string, enc='utf-8'):
     '''Returns bytes of the string argument. Compatible w/ Python 2
@@ -158,9 +165,9 @@ class StateMachine(object):
                 version from the function.
         '''
         allowed_kargs = {'demux'}
-        if not kargs.keys() <= allowed_kargs:
+        if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
-                            (list(kargs - allowed_kargs)))
+                            (list(set(kargs.keys()) - allowed_kargs)))
         if states:
             self._cstate = State()
             self._cstate.add_state(cstate, initial=True)
@@ -173,12 +180,7 @@ class StateMachine(object):
             self._cstate = State(sexp=cstate)
         # Event Queue shared by all instances of the State Machine
         # Queue elements are (SMState, evt) tuples
-        self._event_queue = queue.Queue()
-
-        # Set of states that have just completed (and need their
-        # completion transtions, if any, performed).
-        # the set is made up of (SMState, State) tuples.
-        self._completed = set() # set of completed states
+        self._event_queue = EventQueue(dflt_prio=STD_EVENT)
 
         if sys.version_info.major > 3 \
            or (sys.version_info.major == 3 and sys.version_info.minor >= 3):
@@ -189,7 +191,6 @@ class StateMachine(object):
             self._v3sched = False
         self._terminated = False
         self._thread = None
-        self._settled = Event()
         self._demux = kargs.get('demux')
         if self._demux:
             self._sm_instances = {}
@@ -226,7 +227,7 @@ class StateMachine(object):
            I.e. it is in a 'stable' state (until new events are posted
            naturally).
         '''
-        settled = self._settled.wait(timeout)
+        settled = self._event_queue.settle(timeout)
         return settled
 
     def pause(self):
@@ -252,10 +253,9 @@ class StateMachine(object):
                   SMState should be used.
         '''
         allowed_kargs = {'sm_state'}
-        if not kargs.keys() <= allowed_kargs:
+        if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
-                            (list(kargs - allowed_kargs)))
-        self._settled.clear()
+                            (list(set(kargs.keys()) - allowed_kargs)))
         for e in evts:
             if e is None:
                 # None events are used internally to indicate that the
@@ -269,7 +269,7 @@ class StateMachine(object):
            Unlike StateMachine.post(), if demux is set then calls to
            post_completion need to position the sm_state argument.'''
         LOG.debug('%s - state completed', state)
-        self._completed.add((sm_state, state))
+        self._event_queue.put((sm_state, state), COMPLETION_EVENT)
 
     def _assign_depth(self, state=None, depth=0):
         '''Assign _depth attribute to states used by the StateMachine.
@@ -298,11 +298,13 @@ class StateMachine(object):
     def _get_sm_state(self, evt, sm_state=None):
         '''Return the SMState (StateMachine instance) the 
            evt event should be routed to.'''
-
+        #FIXME: race-y with deletion. It is possible to have
+        #       an event posted and the SMState could be deleted
+        #       before the event is processed.
         if sm_state is None:
             def post_init_sm_state(sm_state):
                 '''Primes the SMState with a 'None' event.'''
-                self._event_queue.put((sm_state, None))
+                self._event_queue.put((sm_state, None), INIT_EVENT)
 
             if self._demux:
                 sm_key, evt = self._demux(evt)
@@ -329,8 +331,6 @@ class StateMachine(object):
             t = time.time()
             if t >= t_wakeup:
                 break
-            # resolve all completion events first
-            self._process_completion_events()
             self._process_next_event(t_wakeup)
 
     def _process_completion_events(self):
@@ -350,53 +350,56 @@ class StateMachine(object):
                 self.stop(sm_state=sm_state)
 
     def _process_next_event(self, t_max=None):
-        '''Wait for an event tobe posted to the SM and process it. Optionaly,
+        '''Wait for an event to be posted to the SM and process it. Optionaly,
            return None if no event was posted before <t_max> is reached.
         '''
-        try:
-            # Non-blocking call, serves to both
-            # check if the queue is empty and
-            # to get the first element if not
-            evt = self._event_queue.get(False)
-        except queue.Empty:
-            # if the queue is empty, the StateMachine
-            # is considered to have settled, and
-            # we wait (up to delay) for an event
-            # to be posted.
-            self._settled.set()
-            while not self._terminated:
-                if t_max:
-                    t = time.time()
-                    if t >= t_max:
-                        # No events received within allocated delay
-                        return
-                    else:
-                        delay = min(t_max - t, self.MAX_STOP_WAIT)
+        while not self._terminated:
+            if t_max:
+                t = time.time()
+                if t >= t_max:
+                    # No events received within allocated delay
+                    return
                 else:
-                    delay = self.MAX_STOP_WAIT
-                try:
-                    evt = self._event_queue.get(True, delay)
-                    break
-                except queue.Empty:
-                    continue
+                    delay = min(t_max - t, self.MAX_STOP_WAIT)
             else:
-                # SM terminated before any new events received
-                return
-        # New event available, process it.
-        assert evt
-        sm_state, evt = evt
-        if evt is None:
-            # SMState needs to be initialized
-            # perform entry into the root region/state
-
-            # pylint: disable=protected-access
-            self._cstate._enter(sm_state)
-            # and trigger entry_transitions if any
-            _, transitions = sm_state._cstate.get_entry_transitions(sm_state)
+                delay = self.MAX_STOP_WAIT
+            try:
+                prio, evt = self._event_queue.get(delay)
+                break
+            except queue.Empty:
+                continue
         else:
-            transitions = None
-        self._step(sm_state, evt, transitions=transitions)
+            # SM terminated before any new events received
+            return
+        # New event available, process it.
+        sm_state, evt = evt
+        {COMPLETION_EVENT: self._process_completion_event,
+         INIT_EVENT: self._process_init_event,
+         STD_EVENT: self._process_std_event, }[prio](sm_state, evt)
 
+    def _process_completion_event(self, sm_state, state):
+        LOG.debug('%s - handling completion of %s', self, state)
+        transitions = state.get_enabled_transitions(sm_state, None)
+        self._step(evt=None, sm_state=sm_state, transitions=transitions)
+        if state.parent:
+            state.parent.child_completed(sm_state, state)
+        else:
+            # top level region completed.
+            state._exit(sm_state)   #pylint: disable=protected-access
+            self.stop(sm_state=sm_state)
+
+    def _process_init_event(self, sm_state, _):
+        # SMState needs to be initialized
+        # perform entry into the root region/state
+
+        # pylint: disable=protected-access
+        self._cstate._enter(sm_state)
+        # and trigger entry_transitions if any
+        _, transitions = sm_state._cstate.get_entry_transitions(sm_state)
+        self._step(sm_state, None, transitions=transitions)
+
+    def _process_std_event(self, sm_state, evt):
+        self._step(sm_state, evt, transitions=None)
 
     def _loop(self):
         '''State Machine loop, called by the SM's thread'''
@@ -411,7 +414,6 @@ class StateMachine(object):
         LOG.debug('%s - beginning event loop', self)
         while not self._terminated:
             # resolve all completion events in priority
-            self._process_completion_events()
             if self._v3sched:
                 tm_next_sched = self._sched.run(blocking=False)
                 if tm_next_sched:
@@ -422,8 +424,10 @@ class StateMachine(object):
                     self._sched.run()
                 else:
                     self._process_next_event()
-            LOG.debug('%s - end of loop, remaining events %r',
-                      self, self._event_queue.queue)
+            if LOG.isEnabledFor(logging.DEBUG):
+                LOG.debug('%s - end of loop, remaining events %r',
+                          self, 
+                          [e for (_, _, e) in sorted(self._event_queue._queue)])
         LOG.debug('%s - State machine done', self)
         self._thread = None
 
