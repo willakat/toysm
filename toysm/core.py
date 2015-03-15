@@ -310,28 +310,16 @@ class State(object):
             raise IllFormedException('Transition %s cannot be added to %s '
                                      'because it already has a source'
                                      % (t, self))
-        if isinstance(self.parent, ParallelState):
-            raise IllFormedException('Parallel region %s cannot be '
-                                     'a transition source for %s'
-                                     %(self, t))
         t.source = self
         self.transitions.append(t)
 
     def accept_transition(self, t):
         '''Called when a transition designates the state as its target.'''
-        if isinstance(self.parent, ParallelState):
-            raise IllFormedException('Parallel region %s cannot be '
-                                     'a transition target for %s'
-                                     %(self, t))
         t.target = self
 
     def accept_parent(self, parent, initial):
         '''Called when this state's parent is set.'''
-        if isinstance(parent, ParallelState) and self.transitions:
-            raise IllFormedException('State %s cannot be a parallel region '
-                                     'of %s because it is a transition '
-                                     'source/target.'
-                                     %(self, parent))
+        pass
 
     def accept_substate(self, state, initial):
         '''Called when a substate is added to the state.'''
@@ -378,10 +366,10 @@ class State(object):
                 'exit' : 'post_exit',}.get(kind, kind)
         self.hooks[kind].append((hook, args, kargs))
 
-    def set_active_substate(self, sm, state):
+    def set_active_substate(self, sm, state, transition_followed):
         '''Set this state's active substate.'''
-        assert not isinstance(state, PseudoState), \
-            'PseudoStates cannot be active substates'
+        if isinstance(state, PseudoState):
+            state = None
         sm.retrieve_state(self).active_substate = state
 
     def get_active_states(self, sm):
@@ -411,6 +399,46 @@ class State(object):
 
     def __lshift__(self, other):
         return _StateExpression(self) << other
+
+
+@public
+class ParallelRegion(State):
+    '''Special form of State used to represent the orthogonal regions
+       inside a parallel state.'''
+
+    dot = {
+        'label': '',
+        'shape': 'box',
+        'style': 'dashed',
+    }
+
+    def add_transition(self, t):
+        raise IllFormedException('Parallel region %s cannot be '
+                                 'a transition source for %s'
+                                 %(self, t))
+
+    def accept_transition(self, t):
+        raise IllFormedException('Parallel region %s cannot be '
+                                 'a transition target for %s'
+                                 %(self, t))
+
+    @classmethod
+    def convert(cls, state):
+        '''Converts <state> to a ParallelRegion.
+           This is done by changing <state>'s class, so it
+           will lose any specificities beyond those provided
+           by the State class.'''
+        if isinstance(state, PseudoState):
+            raise IllFormedException('PseudoState %s cannot be used '
+                                     'as a Parallel region.' % state)
+        if not isinstance(state, cls):
+            if state.transitions:
+                raise IllFormedException('State %s cannot be used as a '
+                                         'parallel region '
+                                         'because it is a transition '
+                                         'source/target.'
+                                         % state)
+            state.__class__ = cls
 
 
 class _ParallelStateDescriptor(_StateDescriptor):
@@ -443,6 +471,8 @@ class ParallelState(State):
             else:
                 raise IllFormedException("PseudoStates cannot be added to a "
                                          "ParallelState")
+        else:
+            ParallelRegion.convert(state)
 
     def get_enabled_transitions(self, sm, evt):
         substate_transitions = []
@@ -492,9 +522,12 @@ class ParallelState(State):
             for j in i.get_active_states(sm):
                 yield j
 
-    def set_active_substate(self, sm, state):
-        pass
-        #assert False, "Internal error: can't set active substate on Parallel state"
+    def set_active_substate(self, sm, state, transition_followed):
+        # pylint: disable = protected-access
+        if transition_followed.kind != Transition._ENTRY \
+            and state not in self._history:
+            raise IllFormedException("Cannot follow transition %s into a Parallel "
+                                     "state." % transition_followed)
 
 
 @public
@@ -547,7 +580,7 @@ class PseudoState(State):
                     break
         return allowed, transitions
 
-    def set_active_substate(self, sm, state):
+    def set_active_substate(self, sm, state, _):
         assert False, "set_substate called on PseudoState"
 
 
@@ -644,18 +677,12 @@ class DeepHistoryState(HistoryState):
     dot['label'] = 'H*'
 
     def add_transition(self, t):
-        if t.source is not None:
-            raise IllFormedException('Transition %s cannot be added to %s '
-                                     'because it already has a source'
-                                     % (t, self))
         if isinstance(self.parent, ParallelState):
             raise IllFormedException('DeepHistory state %s cannot be the source '
                                      'of transition %s because parent is a '
                                      'ParallelState.'
                                      %(self, t))
-        #TODO: this is a repeat of code from State
-        t.source = self
-        self.transitions.append(t)
+        super(DeepHistoryState, self).add_transition(t)
 
     def accept_transition(self, t):
         # It is acceptable for a DeepHistoryState to be the target

@@ -42,8 +42,7 @@ import subprocess
 from threading import Thread
 import sys
 
-from toysm.core import State, ParallelState, InitialState, Transition, \
-                       DeepHistoryState, PseudoState
+from toysm.core import State, ParallelState, InitialState, Transition
 
 from toysm.public import public
 from toysm.event_queue import EventQueue
@@ -122,7 +121,7 @@ class SMState(object):
         '''Returns the stored state for the given state.'''
         desc = self._state.get(state)
         #pylint: disable=protected-access
-        if desc is None and state._descriptor_type: 
+        if desc is None and state._descriptor_type:
             self._state[state] = desc = state._descriptor_type()
         return desc
 
@@ -296,7 +295,7 @@ class StateMachine(object):
             return [a] + a_path, b_path + [b]
 
     def _get_sm_state(self, evt, sm_state=None):
-        '''Return the SMState (StateMachine instance) the 
+        '''Return the SMState (StateMachine instance) the
            evt event should be routed to.'''
         #FIXME: race-y with deletion. It is possible to have
         #       an event posted and the SMState could be deleted
@@ -479,10 +478,7 @@ class StateMachine(object):
             for a, b in [(t_path[i], t_path[i+1])
                          for i in range(len(t_path) - 1)]:
                 if a is not None:
-                    if isinstance(b, PseudoState):
-                        a.set_active_substate(sm_state, None)
-                    else:
-                        a.set_active_substate(sm_state, b)
+                    a.set_active_substate(sm_state, b, t)
                 b._enter(sm_state)
         LOG.debug("%s - step complete for %r", self, evt)
 
@@ -492,11 +488,7 @@ class StateMachine(object):
         def write_node(stream, state, transitions=None):
             '''Writes a state's representation in dot format.'''
             transitions.extend(state.transitions)
-            if state.parent and not isinstance(state, DeepHistoryState) \
-               and isinstance(state.parent, ParallelState):
-                attrs = dot_attrs(state, shape='box', style='dashed')
-            else:
-                attrs = dot_attrs(state)
+            attrs = dot_attrs(state)
             if state.children:
                 stream.write(_bytes('subgraph cluster_%s {\n' % id(state)))
                 stream.write(_bytes(attrs + "\n"))
