@@ -57,7 +57,7 @@ Dependencies
 [4]: http://github.com/jrfonseca/xdot.py "xdot"
 [5]: http://pythonhosted.org/six/ "six"
 
-(Beginings of a) Tutorial
+(Beginnings of a) Tutorial
 -------------------------
 ### Introduction
 First things first, there's a good description of what a StateMachine
@@ -149,7 +149,7 @@ egress transitions matching on an 'a' event. The next event is a 'b',
 which will effectively take us back to the initial state. The last
 event of the sequence takes us back to where we were after the first
 call to *post*. The last call to *post* will cause the StateMachine
-to finish. (For now calling *start* on the StateMachine will not 
+to finish. (For now calling *start* again on the StateMachine will not 
 start it up properly... it's on the todo list though)
 
 TODO
