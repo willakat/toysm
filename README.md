@@ -38,6 +38,8 @@ What's still missing
 
 * Better graphing for Hierarchical states
 
+* Possibility to restart a StateMachine after it has terminated.
+
 * StateMachine Pause function
 
 * Documentation :-)
@@ -59,17 +61,19 @@ Dependencies
 -------------------------
 ### Introduction
 First things first, there's a good description of what a StateMachine
-is on [Wikipedia]. What ToySM allows you to do is give a fairly
+is supposed to be over at  [Wikipedia]. What ToySM allows you to achieve
+is to give a fairly
 concise description of a StateMachine and have it run for you based
 on inputs you *post* to the StateMachine.
 
-1) A basic StateMachine
+#### A basic StateMachine
 The following bit of code gives an example of a very simple StateMachine
-that we'll use to walk through some of ToySM features.
+that we'll use to walk through some of ToySM's features.
+
+    from __future__ import print_function # python2 compat
+    from toysm import State, FinalState, EqualsTransition, StateMachine
 
     # Section 1 - Declare the States we'll need
-    from toysm import State, FinalState, EqualsTransition, StateMachine
-    from __future__ import print_function # python2 compat
     state_1 = State('state_1')
     state_2 = State('state_2')
     final = FinalState()
@@ -85,7 +89,9 @@ that we'll use to walk through some of ToySM features.
     
     # Section 4 - Our StateMachine is ready to process inbound input events
     sm.post('a')	# This will transition the StateMachine from state_1
-    		# to state_2
+	    		# to state_2
+    sm.post('a', 'b', 'a')	# and around we go...
+    sm.post('c')	# we're done.
 
 So let's have a look at what's going on here.
 In section 1, we declare the states we are going to need in our future
@@ -99,7 +105,7 @@ part of the StateMachine has completed. In our very simple case, it
 will be used to tell the StateMachine that we've reached the end of our
 processing.
 
-Section 2, is used to string our states together with Transitions. They
+Section 2 connects our states together with Transitions. They
 describe what Events will cause our StateMachine to change from one
 State to another. Here's a more visual version of what we've just
 programatically described:
@@ -108,7 +114,7 @@ programatically described:
 
 State_1 and State_2 are connected with "EqualsTransitions", as the
 name implies this type of Transition checks if the incoming event
-is Equal to the value declared when the Transition was declared.
+is Equal to the value declared when the Transition was initialized.
 In case of a match the Transition if followed.
 
 The "state_1 >> 'a' >> state_2" notation is a convenient shorthand for 
@@ -117,7 +123,7 @@ The "state_1 >> 'a' >> state_2" notation is a convenient shorthand for
 You may have noticed that something slightly different is happening
 between state_2 and the FinalState. Here the EqualsTransition is 
 created explicitly in order to pass in an "action" argument.
-This action is simply a reference to function that will be called
+This action is simply a function reference that will be called
 whenever the StateMachine follows this Transition.
 
 So what we've accomplished here is to describe a StateMachine
@@ -128,13 +134,23 @@ us to reach the final state and end the StateMachine.
 
 Section 3 is where the StateMachine object is actually created. To
 do this we call the StateMachine constructor and pass in the States
-that will be participating in our StateMachine. Once that done, we're
-good to go and can "start" the StateMachine. Behind the scene this
+that will be participating in our StateMachine. Once that's done, we're
+good to go and can "start" the StateMachine. Behind the scenes this
 will create a Thread that will wait for events to be posted to the
 StateMachine and make its state evolve accordingly.
 
 In Section 4 we actually get around to 'posting' events to the StateMachine
-in order to make its internal state evolve. 
+in order to make its internal state evolve. The first call to *post*
+will move the StateMachine to state_2, while the second call will move
+the state back to state_1 and back to state_2. This second call actually
+demonstrates several aspects. First of all the 'a' event at the begining
+of the sequence has no effect since when we're in state_2 there are no
+egress transitions matching on an 'a' event. The next event is a 'b',
+which will effectively take us back to the initial state. The last
+event of the sequence takes us back to where we were after the first
+call to *post*. The last call to *post* will cause the StateMachine
+to finish. (For now calling *start* on the StateMachine will not 
+start it up properly... it's on the todo list though)
 
 TODO
 ----
@@ -145,7 +161,7 @@ tutorial. For instance the following is a State expression:
 
 	state_1 >> EqualsTransition('a') >> state_2
 
-We didn't delve into any detail, but these expressions can be real
+We didn't delve into any of the specifics, but these expressions can be real
 time savors when describing a state machine. We've already seen
 how they allow you to connect states, but it turns out you can
 use them directly in State or StateMachine initializers.

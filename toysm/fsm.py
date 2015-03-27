@@ -191,6 +191,10 @@ class StateMachine(object):
         self._terminated = False
         self._thread = None
         self._demux = kargs.get('demux')
+        # TODO: re-starting the StateMachine should clear these
+        #       to allow a fresh run. However its also nice to be
+        #       able to start posting to an SM even before
+        #       its started.
         if self._demux:
             self._sm_instances = {}
         else:
