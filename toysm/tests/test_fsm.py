@@ -276,6 +276,7 @@ class TestFSM(unittest.TestCase):
         trace((s1, s2, s3, s4, j))
 
         sm = StateMachine(s1)
+        #sm.graph()
 
         sm.start()
         sm.post('a', '0', 'a', '0', 'a')
@@ -920,7 +921,7 @@ class TestDemux(unittest.TestCase):
                 (1,'e'),
                 (1,'f'),)
 
-        sm.settle(.1)
+        sm.settle(.2)
 
         self.assertTrue(Trace.contains(
             [ (s2, 'entry'),

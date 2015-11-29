@@ -65,7 +65,7 @@ class EventQueue:
                 # Queue is empty, the StateMachine is settled
                 self._counter = 0
                 self._consumers += 1
-                self._settled.notify()
+                self._settled.notify_all()
                 self._evt_avail.wait(timeout)
                 self._consumers -= 1
                 if not self._queue:

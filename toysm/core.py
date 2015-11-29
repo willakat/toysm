@@ -21,7 +21,7 @@
 #
 ################################################################################
 
-# pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
+# pylint: disable=unexpected-keyword-arg, no-value-for-parameter
 # pylint: disable=invalid-name
 
 from threading import Thread, Event, Lock

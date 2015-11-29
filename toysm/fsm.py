@@ -21,7 +21,7 @@
 #
 ################################################################################
 
-# pylint: disable=unexpected-keyword-arg, no-value-for-parameter,star-args
+# pylint: disable=unexpected-keyword-arg, no-value-for-parameter
 # pylint: disable=invalid-name
 
 
@@ -335,22 +335,6 @@ class StateMachine(object):
             if t >= t_wakeup:
                 break
             self._process_next_event(t_wakeup)
-
-    def _process_completion_events(self):
-        '''Processes all available completion events.'''
-        while not self._terminated and self._completed:
-            sm_state, state = self._completed.pop()
-            LOG.debug('%s - handling completion of %s', self, state)
-            transitions = state.get_enabled_transitions(sm_state, None)
-            if transitions:
-                self._step(evt=None, sm_state=sm_state, transitions=transitions)
-            LOG.debug('%s - done with completion transitions for %s', self, state)
-            if state.parent:
-                state.parent.child_completed(sm_state, state)
-            else:
-                # top level region completed.
-                state._exit(sm_state)   #pylint: disable=protected-access
-                self.stop(sm_state=sm_state)
 
     def _process_next_event(self, t_max=None):
         '''Wait for an event to be posted to the SM and process it. Optionaly,
