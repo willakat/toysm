@@ -787,6 +787,60 @@ class TestFSM(unittest.TestCase):
             [ ('my_transition1',  'action'), ], show_on_fail=False))
         self.assertTrue(sm.join(1))
 
+    def test_transition_from_superstate_to_substate(self):
+        s0 = State('s0')
+        s1 = State('s1', parent=s0, initial=True)
+        s2 = State('s2', parent=s0)
+
+        s0 >> 'a' >> s2
+
+        trace((s0, s1, s2), transitions=False)
+
+        sm = StateMachine(s0)
+        sm.start()
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ (s1, 'entry') ]))
+        self.assertFalse(Trace.contains(
+            [ (s2, 'entry') ], show_on_fail=False))
+
+        sm.post('a')
+        sm.settle(.1)
+
+        self.assertTrue(Trace.contains(
+            [ (s1, 'exit'),
+              (s2, 'entry')]))
+        self.assertFalse(Trace.contains(
+            [ (s0, 'exit') ], show_on_fail=False))
+        sm.stop()
+
+    def test_external_transition_from_superstate_to_substate(self):
+        s0 = State('s0')
+        s1 = State('s1', parent=s0, initial=True)
+        s2 = State('s2', parent=s0)
+
+        s0 >> EqualsTransition('a', kind=Transition.EXTERNAL) >> s2
+
+        trace((s0, s1, s2), transitions=False)
+
+        sm = StateMachine(s0)
+        sm.start()
+        sm.settle(.1)
+        self.assertTrue(Trace.contains(
+            [ (s1, 'entry') ]))
+        self.assertFalse(Trace.contains(
+            [ (s2, 'entry') ], show_on_fail=False))
+
+        sm.post('a')
+        sm.settle(.1)
+
+        self.assertTrue(Trace.contains(
+            [ (s1, 'exit'),
+              (s0, 'exit'),
+              (s0, 'entry'),
+              (s2, 'entry')]))
+        sm.stop()
+
 class TestDemux(unittest.TestCase):
     def setUp(self):
         Trace.clear()

@@ -42,7 +42,7 @@ import subprocess
 from threading import Thread
 import sys
 
-from toysm.core import State, ParallelState, InitialState, Transition
+from toysm.core import State, PseudoState, ParallelState, InitialState, Transition
 
 from toysm.public import public
 from toysm.event_queue import EventQueue
@@ -143,6 +143,13 @@ class SMState(object):
         '''Stops this StateMachine instance.'''
         self._sm.stop(sm_state=self)
 
+    def __str__(self):
+        sm_str = str(self._sm)
+        if self.key:
+            return '%s key=%i' % (sm_str, self.key)
+        else:
+            return sm_str
+
 @public
 class StateMachine(object):
     '''StateMachine .... think of something smart to put here ;-).'''
@@ -240,7 +247,7 @@ class StateMachine(object):
     def stop(self, sm_state=None):
         '''Stops the State Machine instane. If sm_state is None, all
            instances are immediately stopped.'''
-        LOG.debug("%s - Stopping state machine", self)
+        LOG.debug("%s - Stopping state machine", sm_state or self)
         if sm_state is None or self._demux is None:
             self._terminated = True
         else:
@@ -271,7 +278,7 @@ class StateMachine(object):
         '''Indicates to the SM that the state has completed.
            Unlike StateMachine.post(), if demux is set then calls to
            post_completion need to position the sm_state argument.'''
-        LOG.debug('%s - state completed', state)
+        LOG.debug('%s - %s - state completed', sm_state, state)
         self._event_queue.put((sm_state, state), COMPLETION_EVENT)
 
     def _assign_depth(self, state=None, depth=0):
@@ -377,7 +384,7 @@ class StateMachine(object):
 
     def _process_completion_event(self, sm_state, state):
         '''Make the state machine evolve after completion of <state>.'''
-        LOG.debug('%s - handling completion of %s', self, state)
+        LOG.debug('%s - handling completion of %s', sm_state, state)
         transitions = state.get_enabled_transitions(sm_state, None)
         self._step(evt=None, sm_state=sm_state, transitions=transitions)
         if state.parent:
@@ -428,8 +435,7 @@ class StateMachine(object):
            be determined based on the StateMachines current enabled
            transitions for the given event.
         '''
-        LOG.debug('%s -%s processing event %r', self,
-                  '' if self._demux is None else ' key=%r -' % sm_state.key, evt)
+        LOG.debug('%s - processing event %r', sm_state, evt)
         if transitions is None:
             transitions = self._cstate.get_enabled_transitions(sm_state, evt)
         while transitions:
@@ -439,7 +445,7 @@ class StateMachine(object):
             #pylint: disable=protected-access
             #t, *transitions = transitions   # 'pop' a transition
             t, transitions = transitions[0], transitions[1:]
-            LOG.debug("%s - following transition %s", self, t)
+            LOG.debug("%s - following (%s) transition %s", sm_state, t.kind, t)
             if t.kind is Transition.INTERNAL:
                 t._action(sm_state, evt)    # pylint: disable = W0212
                 continue
@@ -453,22 +459,30 @@ class StateMachine(object):
                                 "because source and target states are in "
                                 "orthogonal regions." %
                                 (src, tgt))
-            if t.kind is Transition.EXTERNAL \
-                and (len(s_path) == 1 or len(t_path) == 1):
-                s_path[-1]._exit(sm_state)
-                t_path.insert(0, None)
-            elif len(s_path) > 1:
-                s_path[-2]._exit(sm_state)
 
-            LOG.debug('%s - performing transition behavior for %s', self, t)
+            # Do state exit
+            if t.kind != Transition._ENTRY:
+                only_children = len(s_path) > 1 or t.kind != Transition.EXTERNAL
+                LOG.debug('s_path %s, t_path %s, only_children=%s', s_path, t_path, only_children)
+                if isinstance(s_path[0], PseudoState):
+                    s_path[0]._exit(sm_state)
+                s_path[-1]._exit(sm_state, only_children)
+
+            LOG.debug('%s - performing transition behavior for %s', sm_state, t)
             t._action(sm_state, evt)
 
+            # Do entry into new state
+            if len(s_path) == 1 and t.kind == Transition.EXTERNAL:
+                s_path[0]._enter(sm_state)
             for a, b in [(t_path[i], t_path[i+1])
                          for i in range(len(t_path) - 1)]:
-                if a is not None:
-                    a.set_active_substate(sm_state, b, t)
+                a.set_active_substate(sm_state, b, t)
                 b._enter(sm_state)
-        LOG.debug("%s - step complete for %r", self, evt)
+
+        LOG.debug("%s - step complete for %r", sm_state, evt)
+
+    def __str__(self):
+        return 'StateMachine'
 
     def graph(self, fname=None, fmt=None, prg=None):
         '''Generates a graph of the State Machine.'''

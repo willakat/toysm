@@ -254,18 +254,22 @@ class State(object):
         '''
         pass
 
-    def _exit(self, sm):
+    def _exit(self, sm, only_children=False):
         '''Called when the StateMachine leaves this state.
            Not intended to be overriden, subclass specific
            behavior should be implemented in _exit_actions.
+           If only_children is True, the State itself will
+           not be exited, only its children.
         '''
-        self._call_hooks(sm, 'pre_exit')
-        self._exit_actions(sm)
-        self.on_exit(sm)
-        self._call_hooks(sm, 'post_exit')
-        LOG.debug("%s - Exiting state", self)
+        if not only_children:
+            self._call_hooks(sm, 'pre_exit')
+        self._exit_actions(sm, only_children)
+        if not only_children:
+            self.on_exit(sm)
+            self._call_hooks(sm, 'post_exit')
+            LOG.debug("%s - Exiting state", self)
 
-    def _exit_actions(self, sm):
+    def _exit_actions(self, sm, only_children=False):
         '''Perform custom actions for a state when the
            StateMachine moves out of this state.
         '''
@@ -510,7 +514,7 @@ class ParallelState(State):
         sm.retrieve_state(self).still_running_children = \
             self.children - self._history
 
-    def _exit_actions(self, sm):
+    def _exit_actions(self, sm, only_children=False):
         for c in self.children - self._history:
             c._exit(sm)         #pylint: disable=protected-access
 
@@ -561,7 +565,7 @@ class PseudoState(State):
         # from being generated for PseudoStates
         pass
 
-    def _exit_actions(self, sm):
+    def _exit_actions(self, sm, only_children=False):
         pass
 
     def get_enabled_transitions(self, sm, evt):
