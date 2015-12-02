@@ -31,17 +31,19 @@ from toysm.public import public
 import logging
 LOG = logging.getLogger(__name__)
 
+
 @public
 class IllFormedException(Exception):
-    '''Exception raised when a statemachine violates well-formedness rules.
+    """Exception raised when a StateMachine violates well-formedness rules.
 
        Ideally the Exception's message should give additional details
        on the nature of the problem...
-    '''
+    """
     pass
 
+
 class _StateDescriptor(object):
-    '''Holder for the dynamic components of a State.'''
+    """Holder for the dynamic components of a State."""
     def __init__(self, copy=None):
         if copy:
             self.active_substate = copy.active_substate
@@ -58,13 +60,14 @@ class _StateDescriptor(object):
         self.complete = False
         self.lock = None
 
+
 @public
 class State(object):
-    '''State in a StateMachine.'''
+    """State in a StateMachine."""
     dot = {
         'style': 'rounded',
         'shape': 'rect',
-        #'label': lambda s: '<<table border="0" cellborder="1" sides="LR">'
+        # 'label': lambda s: '<<table border="0" cellborder="1" sides="LR">'
         #                   '<tr><td>%s</td></tr></table>>'%s.name or ''
         'label': lambda s: s.name or ''
     }
@@ -74,7 +77,7 @@ class State(object):
 
     def __init__(self, name=None, sexp=None, parent=None, initial=False,
                  on_enter=None, on_exit=None, do=None):
-        '''
+        """
         Parameters:
         name      A name for the state
 
@@ -105,11 +108,11 @@ class State(object):
                   The function should return a 'True' value if it needs
                   to be called repetitively (loop). As soon as any 'False'
                   value is returned, the do-activity is considered complete.
-        '''
+        """
         super(State, self).__init__()
         self.transitions = []
         self.name = name
-        self.initial = None # Initial substate (if any)
+        self.initial = None     # Initial substate (if any)
         self.children = set()
         self.hooks = {
             'pre_entry': [],
@@ -131,9 +134,9 @@ class State(object):
             self.add_hook('pre_exit', self.stop_do_activity)
 
     def get_enabled_transitions(self, sm, evt):
-        '''Return transitions from the state for the given event, or None
+        """Return transitions from the state for the given event, or None
            for states that are never the source of transition (e.g.
-           TerminateState and FinalState).'''
+           TerminateState and FinalState)."""
         LOG.debug("%s - get_enabled_transitions for %r", self, evt)
         # children transitions have a higher priority
         if evt:
@@ -148,7 +151,7 @@ class State(object):
         return self._get_local_enabled_transitions(sm, evt)
 
     def _get_local_enabled_transitions(self, sm, evt):
-        '''Return transitions for event with this state as source.'''
+        """Return transitions for event with this state as source."""
         transitions = []
         for t in self.transitions:
             if t._is_triggered(sm, evt):  #pylint: disable=protected-access
@@ -166,9 +169,8 @@ class State(object):
             LOG.debug("%s - no transitions found for %r", self, evt)
         return transitions
 
-
     def get_entry_transitions(self, sm):
-        '''Return a list of transitions triggered by enterring this state.'''
+        """Return a list of transitions triggered by enterring this state."""
         if self.children:
             if self.initial:
                 # pylint: disable=protected-access
@@ -182,16 +184,16 @@ class State(object):
             return True, []
 
     def child_completed(self, sm, child):
-        '''Called when a child State completes.'''
+        """Called when a child State completes."""
         pass
 
     def reached_final(self, sm):
-        '''Called when this State's active substate reaches a FinalState.'''
+        """Called when this State's active substate reaches a FinalState."""
         sm.retrieve_state(self).final_reached = True
         self._check_completion(sm)
 
     def _call_hooks(self, sm, kind):
-        '''Calls the hooks registered for 'kind'.'''
+        """Calls the hooks registered for 'kind'."""
         if LOG.isEnabledFor(logging.DEBUG) and self.hooks[kind]:
             LOG.debug("%s - calling %s hooks", self, kind)
         for hook in self.hooks[kind]:
@@ -200,17 +202,17 @@ class State(object):
             h(sm, self, *args, **kargs)
 
     def on_entry(self, sm):
-        '''Called when the state is entered.
-           This method is designed to be overriden to provide entry
-           customizaiton.
-        '''
+        """Called when the state is entered.
+           This method is designed to be overridden to provide entry
+           customization.
+        """
         pass
 
     def _enter(self, sm):
-        '''Called when a state is entered.
-           Not intended to be overriden, subclass specific behavior
+        """Called when a state is entered.
+           Not intended to be overridden, subclass specific behavior
            should be implemented in _enter_actions.
-        '''
+        """
         LOG.debug("%s - Entering state", self)
         self._call_hooks(sm, 'pre_entry')
         self.on_entry(sm)
@@ -218,11 +220,11 @@ class State(object):
         self._call_hooks(sm, 'post_entry')
 
     def _enter_actions(self, sm):
-        '''Performs class specific actions on state entry.
+        """Performs class specific actions on state entry.
            Called by the _enter method.
-           This method is intended to be overriden for state
+           This method is intended to be overridden for state
            specificities.
-        '''
+        """
         if self.children:
             if self.do_activity:
                 desc = sm.retrieve_state(self)
@@ -232,10 +234,10 @@ class State(object):
             self._check_completion(sm)
 
     def _check_completion(self, sm):
-        '''Posts a completion event if the State is considered
+        """Posts a completion event if the State is considered
            to have completed, i.e. if a do-activity is defined
            then it has completed and children have reached a
-           FinalState.'''
+           FinalState."""
         if self.do_activity and self.children:
             desc = sm.retrieve_state(self)
             with desc.lock:
@@ -248,19 +250,19 @@ class State(object):
             sm.post_completion(self)
 
     def on_exit(self, sm):
-        '''Called when the state is exited.
-           This method is designed to be overriden to provide exit
+        """Called when the state is exited.
+           This method is designed to be overridden to provide exit
            customization.
-        '''
+        """
         pass
 
     def _exit(self, sm, only_children=False):
-        '''Called when the StateMachine leaves this state.
-           Not intended to be overriden, subclass specific
+        """Called when the StateMachine leaves this state.
+           Not intended to be overridden, subclass specific
            behavior should be implemented in _exit_actions.
            If only_children is True, the State itself will
            not be exited, only its children.
-        '''
+        """
         if not only_children:
             self._call_hooks(sm, 'pre_exit')
         self._exit_actions(sm, only_children)
@@ -270,16 +272,16 @@ class State(object):
             LOG.debug("%s - Exiting state", self)
 
     def _exit_actions(self, sm, only_children=False):
-        '''Perform custom actions for a state when the
+        """Perform custom actions for a state when the
            StateMachine moves out of this state.
-        '''
+        """
         desc = sm.retrieve_state(self)
         active_substate = desc.active_substate
         if active_substate:
             active_substate._exit(sm)  # pylint: disable=protected-access
 
     def start_do_activity(self, sm, _):
-        '''Start the State's do-activity thread.'''
+        """Start the State's do-activity thread."""
         do_activity = self.do_activity
         desc = sm.retrieve_state(self)
         desc.activity_complete = False
@@ -287,7 +289,7 @@ class State(object):
             desc.lock = Lock()
         exit_required = desc.exit_required = Event()
         def do():
-            '''target for the do-activity Thread.'''
+            """target for the do-activity Thread."""
             while not exit_required.is_set():
                 if not do_activity(sm, self, exit_required):
                     desc.activity_complete = True
@@ -299,7 +301,7 @@ class State(object):
         desc.do_thread.start()
 
     def stop_do_activity(self, sm, _):
-        '''Stop the State's do-activity thread.'''
+        """Stop the State's do-activity thread."""
         desc = sm.retrieve_state(self)
         desc.exit_required.set()
         do_thread = desc.do_thread
@@ -309,7 +311,7 @@ class State(object):
             LOG.debug("%s - Do-activity tread stopped", self)
 
     def add_transition(self, t):
-        '''Sets this state as the source of Transition t.'''
+        """Sets this state as the source of Transition t."""
         if t.source is not None:
             raise IllFormedException('Transition %s cannot be added to %s '
                                      'because it already has a source'
@@ -318,33 +320,33 @@ class State(object):
         self.transitions.append(t)
 
     def accept_transition(self, t):
-        '''Called when a transition designates the state as its target.'''
+        """Called when a transition designates the state as its target."""
         t.target = self
 
     def accept_parent(self, parent, initial):
-        '''Called when this state's parent is set.'''
+        """Called when this state's parent is set."""
         pass
 
     def accept_substate(self, state, initial):
-        '''Called when a substate is added to the state.'''
+        """Called when a substate is added to the state."""
         pass
 
     def add_state(self, sexp, initial=False):
-        '''Adds a substate or state expression to the state.
+        """Adds a substate or state expression to the state.
 
            If initial is True, the substate will be considered
            the initial state of the composite state. This is equivalent
            to adding an InitialState with a transition to the substate.
-        '''
+        """
         sexp.set_parent(self, initial=initial)
 
     def set_parent(self, state, initial=False):
-        '''Set this state's parent.'''
+        """Set this state's parent."""
         self._connect_substate(state, self, initial=initial)
 
     @staticmethod
     def _connect_substate(parent, substate, initial=False):
-        '''Connects a parent state to a substate.'''
+        """Connects a parent state to a substate."""
         if not (substate.parent is None or substate.parent is parent):
             raise IllFormedException('State %s already has a parent' % substate)
 
@@ -360,27 +362,27 @@ class State(object):
             parent.initial = substate
 
     def add_hook(self, kind, hook, *args, **kargs):
-        '''Add a hook that will be called whenever <kind> action occurs for
+        """Add a hook that will be called whenever <kind> action occurs for
            this state. <kind> can be one of 'entry, enter, exit' or
            one of 'pre_entry, post_entry, pre_exit, post_exit' for more
            specific requirements.
-        '''
+        """
         kind = {'entry': 'pre_entry',
                 'enter': 'pre_entry',
-                'exit' : 'post_exit',}.get(kind, kind)
+                'exit' : 'post_exit'}.get(kind, kind)
         self.hooks[kind].append((hook, args, kargs))
 
     def set_active_substate(self, sm, state, transition_followed):
-        '''Set this state's active substate.'''
+        """Set this state's active substate."""
         if isinstance(state, PseudoState):
             state = None
         sm.retrieve_state(self).active_substate = state
 
     def get_active_states(self, sm):
-        '''Return an iterator over the active substates of the State
+        """Return an iterator over the active substates of the State
            the method is called on. The result will include the State
            itself.
-        '''
+        """
         desc = sm.retrieve_state(self)
         yield (self, self._descriptor_type(desc))
         if desc.active_substate:
@@ -388,10 +390,10 @@ class State(object):
                 yield i
 
     def restore_state(self, sm, saved):
-        '''Restore the State to a previously saved condition.
+        """Restore the State to a previously saved condition.
            This saved condition can be obtained by a call
            to State.get_active_states.
-        '''
+        """
         sm.store_state(self, saved)
 
     def __str__(self):
@@ -407,8 +409,8 @@ class State(object):
 
 @public
 class ParallelRegion(State):
-    '''Special form of State used to represent the orthogonal regions
-       inside a parallel state.'''
+    """Special form of State used to represent the orthogonal regions
+       inside a parallel state."""
 
     dot = {
         'label': '',
@@ -419,19 +421,19 @@ class ParallelRegion(State):
     def add_transition(self, t):
         raise IllFormedException('Parallel region %s cannot be '
                                  'a transition source for %s'
-                                 %(self, t))
+                                 % (self, t))
 
     def accept_transition(self, t):
         raise IllFormedException('Parallel region %s cannot be '
                                  'a transition target for %s'
-                                 %(self, t))
+                                 % (self, t))
 
     @classmethod
     def convert(cls, state):
-        '''Converts <state> to a ParallelRegion.
+        """Converts <state> to a ParallelRegion.
            This is done by changing <state>'s class, so it
            will lose any specificities beyond those provided
-           by the State class.'''
+           by the State class."""
         if isinstance(state, PseudoState):
             raise IllFormedException('PseudoState %s cannot be used '
                                      'as a Parallel region.' % state)
@@ -446,7 +448,7 @@ class ParallelRegion(State):
 
 
 class _ParallelStateDescriptor(_StateDescriptor):
-    '''Holder for the dynamic components of a State.'''
+    """Holder for the dynamic components of a State."""
     def __init__(self, copy=None):
         super(_ParallelStateDescriptor, self).__init__()
         del self.active_substate
@@ -455,9 +457,9 @@ class _ParallelStateDescriptor(_StateDescriptor):
 
 @public
 class ParallelState(State):
-    '''State containing several "parallel" regions that execute
+    """State containing several "parallel" regions that execute
        independently.
-    '''
+    """
 
     _descriptor_type = _ParallelStateDescriptor
 
@@ -489,7 +491,7 @@ class ParallelState(State):
             return self._get_local_enabled_transitions(sm, evt)
 
     def get_entry_transitions(self, sm):
-        '''Returns the list of transitions triggered by entering this state.'''
+        """Returns the list of transitions triggered by entering this state."""
         #pylint: disable=protected-access
         transitions = []
         for c in self.children - self._history:
@@ -536,7 +538,7 @@ class ParallelState(State):
 
 @public
 class PseudoState(State):
-    '''Superclass of all PseudoStates.'''
+    """Superclass of all PseudoStates."""
 
     dot = {
         'label': '',
@@ -551,8 +553,8 @@ class PseudoState(State):
     # Mask _descriptor_type from State (no do-activities or substates)
     _descriptor_type = None
 
-    #specifies whether the PseudoState is allowed to be the terminal
-    #node in a (potentially compound) transition.
+    # specifies whether the PseudoState is allowed to be the terminal
+    # node in a (potentially compound) transition.
     transition_terminal = False
 
     def __init__(self, name=None, initial=False, **kargs):
@@ -590,9 +592,9 @@ class PseudoState(State):
 
 @public
 class InitialState(PseudoState):
-    '''PseudoState that designates the 'initial' substate of a composite
+    """PseudoState that designates the 'initial' substate of a composite
        state.
-    '''
+    """
     def add_transition(self, t):
         if self.transitions:
             raise IllFormedException('Initial state must have only one '
@@ -613,15 +615,15 @@ class InitialState(PseudoState):
 
 @public
 class Junction(PseudoState):
-    '''PseudoState that allows multiple transitions to be stringed together.'''
+    """PseudoState that allows multiple transitions to be stringed together."""
     pass
 
 
 @public
 class HistoryState(PseudoState):
-    '''PseudoState that saves the current substate of a composite state
+    """PseudoState that saves the current substate of a composite state
        and allows it to be directly re-entered.
-    '''
+    """
     dot = {
         'label': 'H',
         'shape': 'circle',
@@ -650,7 +652,7 @@ class HistoryState(PseudoState):
         parent.add_hook('pre_exit', self.save_state)
 
     def save_state(self, sm, *_):
-        '''Callback when the HistoryState's parent state is exited.'''
+        """Callback when the HistoryState's parent state is exited."""
         sm.store_state(self, sm.retrieve_state(self.parent).active_substate)
 
     def get_entry_transitions(self, sm):
@@ -672,11 +674,11 @@ class HistoryState(PseudoState):
 
 @public
 class DeepHistoryState(HistoryState):
-    '''PseudoState that keeps is able to restore its parent state
+    """PseudoState that keeps is able to restore its parent state
        to the way it was when it was previously exited. This
        history includes the state of all the recursive substates
        of the parent.
-    '''
+    """
     dot = HistoryState.dot.copy()
     dot['label'] = 'H*'
 
@@ -728,7 +730,7 @@ class DeepHistoryState(HistoryState):
 
 
 class _SinkState(PseudoState):
-    '''PseudoState that forbids adding egress transitions.'''
+    """PseudoState that forbids adding egress transitions."""
     transition_terminal = True
 
     def add_transition(self, t):
@@ -739,7 +741,7 @@ class _SinkState(PseudoState):
 
 @public
 class FinalState(_SinkState):
-    '''PseudoState that causes its parent state/region to complete.'''
+    """PseudoState that causes its parent state/region to complete."""
     dot = {
         'label': '',
         'shape': 'doublecircle',
@@ -755,7 +757,7 @@ class FinalState(_SinkState):
 
 @public
 class TerminateState(_SinkState):
-    '''PseudoState that causes the StateMachine to stop.'''
+    """PseudoState that causes the StateMachine to stop."""
     dot = {
         'label': 'X',
         'shape': 'none',
@@ -776,11 +778,11 @@ class ExitState(Junction):
 
 
 class _StateExpression(object):
-    '''Class used to simplify stitching together states and transitions.
+    """Class used to simplify stitching together states and transitions.
 
        A(s1): produces a builder containing a single state
        A << s2, results in a builder with a
-    '''
+    """
 
     def __init__(self, state=None):
         states = self.states = set()
@@ -789,7 +791,7 @@ class _StateExpression(object):
         self.head = self.tail = self.initial = state
 
     def set_parent(self, state, initial=False):
-        '''Set the parent state of all states in the expression.'''
+        """Set the parent state of all states in the expression."""
         if isinstance(self.tail, Transition) \
             or isinstance(self.head, Transition):
             raise IllFormedException('State expressions must not begin/end with'
@@ -798,7 +800,7 @@ class _StateExpression(object):
             s.set_parent(state, initial=initial and self.initial is s)
 
     def add_state(self, state):
-        '''Add a state to the expression.'''
+        """Add a state to the expression."""
         if state not in self.states:
             self.states.add(state)
             if isinstance(state, InitialState):
@@ -808,13 +810,13 @@ class _StateExpression(object):
                 self.initial = state
 
     def connect(self, a, b):
-        '''Connects a and b where a or b can be either a State or
+        """Connects a and b where a or b can be either a State or
            a Transition.
-        '''
+        """
         def prep(e):
-            '''Take appropriate action based on e's type
+            """Take appropriate action based on e's type
                for the connection to be performed.
-            '''
+            """
             if isinstance(e, State):
                 self.add_state(e)
             else:
@@ -860,12 +862,12 @@ class _StateExpression(object):
 ################################################################################
 
 class TransitionMeta(type):
-    '''Metaclass for Transitions
+    """Metaclass for Transitions
        This class is informed when a subclass of Transition is created
        and will update the Transition._transition_cls if the new class
        supports a 'ctor_accepts' method. The latter is used to determine
        which Transition subclass to use when Transition.make_transition
-       is called.'''
+       is called."""
     def __new__(mcs, name, bases, kwds):
         # register the new Transition if it has an ctor_accepts method
         cls = type.__new__(mcs, name, bases, kwds)
@@ -875,9 +877,10 @@ class TransitionMeta(type):
             Transition._transition_cls.insert(0, cls)
         return cls
 
+
 @public
 class Transition(with_metaclass(TransitionMeta)):
-    '''Tranistion in a StateMachine.
+    """Transition in a StateMachine.
 
        Transitions have the following attributes:
        - source [mandatory]
@@ -896,7 +899,7 @@ class Transition(with_metaclass(TransitionMeta)):
                 LOCAL    default type of transition, on_enter/on_exit are only
                          called when the target/source node isn't a substate/
                          superstate.
-    '''
+    """
     INTERNAL = 'internal'
     EXTERNAL = 'external'
     LOCAL = 'local'
@@ -929,19 +932,19 @@ class Transition(with_metaclass(TransitionMeta)):
             self.target = target
 
     def is_triggered(self, sm, evt):
-        '''Returns a boolean indicating if the transition should be
+        """Returns a boolean indicating if the transition should be
            enabled for the evt event.
 
            This method is intended to be overridden by subclasses.
-        '''
+        """
         #pylint: disable=unused-argument, no-self-use
         return evt is not None  # Not a completion event (Completion events
                                 # are recognized by CompletionTransition.
 
     def _is_triggered(self, sm, evt):
-        '''Called to determine if the transition is enabled for the <evt>
+        """Called to determine if the transition is enabled for the <evt>
            event.
-        '''
+        """
         if self.trigger:
             triggered = self.is_triggered(sm, evt) and self.trigger(sm, evt)
         else:
@@ -952,19 +955,19 @@ class Transition(with_metaclass(TransitionMeta)):
 
 
     def _action(self, sm, evt):
-        '''Called when the StateMachine follows this transition.'''
+        """Called when the StateMachine follows this transition."""
         for hook in self.hooks:
             h, args, kargs = hook
             h(sm, self, evt, *args, **kargs)
         self.do_action(sm, evt)
 
     def do_action(self, sm, evt):
-        '''Called when this transtion is followed.'''
+        """Called when this transition is followed."""
         if self.action:
             self.action(sm, evt)
 
     def add_hook(self, hook, *args, **kargs):
-        '''Add a hook that will be called when this transition is followed.'''
+        """Add a hook that will be called when this transition is followed."""
         self.hooks.append((hook, args, kargs))
 
     def __str__(self):
@@ -974,12 +977,12 @@ class Transition(with_metaclass(TransitionMeta)):
 
     @classmethod
     def make_transition(cls, value, **kargs):
-        '''Produce a Transition object based on the <value>.
+        """Produce a Transition object based on the <value>.
 
            kargs will be passed into the constructor of the Transition
            (assuming a constructor needs to be called, e.g. when value
            isn't already a Transition).
-        '''
+        """
         if isinstance(value, Transition):
             return value
         for cls in cls._transition_cls:
@@ -990,23 +993,23 @@ class Transition(with_metaclass(TransitionMeta)):
 
 @public
 class CompletionTransition(Transition):
-    '''Special Transition used to indicate that the Transition should
+    """Special Transition used to indicate that the Transition should
        trigger when its source State completes.
        Note that a Completion can nevertheless have a trigger condition,
        this trigger should however not expect <evt> to be anything else
        than None.
-    '''
+    """
     def is_triggered(self, sm, evt):
         return evt is None
 
 @public
 class EqualsTransition(Transition):
-    '''Simple Transition type that checks events against a
+    """Simple Transition type that checks events against a
        pre-defined value.
-    '''
+    """
     @classmethod
     def ctor_accepts(cls, value, **_):
-        '''Constructor accepts any value as long as it isn't a class.'''
+        """Constructor accepts any value as long as it isn't a class."""
         if not isclass(value):
             return True
 
@@ -1021,9 +1024,9 @@ class EqualsTransition(Transition):
 
 @public
 class Timeout(Transition):
-    '''Transition that will trigger if the source state isn't exited
+    """Transition that will trigger if the source state isn't exited
        within a certain delay.
-    '''
+    """
 
     def __init__(self, delay, desc=None, **kargs):
         desc = 'after (%ss)' % delay + ('/%s' % desc if desc else '')
@@ -1035,17 +1038,17 @@ class Timeout(Transition):
 
     @property
     def source(self):
-        '''Source of the transition is a property.
+        """Source of the transition is a property.
            This allows the a hook to be placed on the
            source state when it is set.
-        '''
+        """
         return self._source
 
     @source.setter
     def source(self, src):
-        '''Adds entry/exit hooks to the source of the transition
+        """Adds entry/exit hooks to the source of the transition
            when it is set.
-        '''
+        """
         if src is None:
             return
         if isinstance(src, PseudoState):
@@ -1055,17 +1058,17 @@ class Timeout(Transition):
         src.add_hook('exit', self._cancel)
 
     def _schedule(self, sm, _):
-        '''Enterring the source state causes a call to _timeout
+        """Enterring the source state causes a call to _timeout
            to be schedule.
-        '''
+        """
         self._sched_id = \
             sm._sched.enter(                    # pylint: disable = W0212
                 self.delay, 10, self._timeout, [sm])
 
     def _cancel(self, sm, _):
-        '''Exiting the source state cancels the timer that was
+        """Exiting the source state cancels the timer that was
            started on entry.
-        '''
+        """
         if self._sched_id:
             sm._sched.cancel(self._sched_id)    # pylint: disable = W0212
             self._sched_id = None

@@ -23,12 +23,12 @@
 
 # pylint: disable=invalid-name
 
-'''Classes intended to simplify using ToySM with Scapy:
+"""Classes intended to simplify using ToySM with Scapy:
    - PacketTransition: allows defining transitions between States based
                        on events that are scapy Packet templates.
    - SMBox: A Scapy pipe box that uses the high/low inputs to post
-   	    events to a state machine.
-'''
+            events to a state machine.
+"""
 
 # Avoid attempting to reload the present module when import when
 # accessing scapy or one of its submodules
@@ -52,17 +52,17 @@ from toysm.public import public
 
 @public
 class ForbidPayload(Packet):
-    '''Used in the context of matching a packet template.
+    """Used in the context of matching a packet template.
        When used as the payload of another packet in a template,
        only packets that don't have a payload will match.
-    '''
+    """
     # pylint: disable=no-init, too-few-public-methods
     pass
 
 
 @public
 def match_packet(template, packet):
-    '''returns True if a scapy Packet matches a template.
+    """returns True if a scapy Packet matches a template.
        Matching occurs if:
        - packet is of the same class or a subclass of template
          or if a sublayer of packet meets this criteria.
@@ -74,11 +74,11 @@ def match_packet(template, packet):
        - the payloads of template and packet match according to match_packet.
          if template has no payload and the previous criteria are met the
          packet is considered to have matched the template.
-    '''
+    """
     def inner_match_packet(template, packet):
-        '''Actual matching is done in this function, the outer function
+        """Actual matching is done in this function, the outer function
            only ensures iteration over template instances.
-        '''
+        """
         tcls = type(template)
         while True:
             if isinstance(packet, tcls):
@@ -115,7 +115,7 @@ def match_packet(template, packet):
 
 @public
 class PacketTransition(Transition):
-    '''Transition that triggers when the event matches a Scapy Packet
+    """Transition that triggers when the event matches a Scapy Packet
        template.
 
        A PacketTransition is created with a Scapy Packet Template:
@@ -129,13 +129,13 @@ class PacketTransition(Transition):
          either 1.2.3.4 or 5.6.7.8.
          Note: the following packet would also match
                Ether()/IP(dst='1.2.3.4')/TCP()
-    '''
+    """
 
     dot = {'label': lambda t: t.desc.replace('<', r'\<').replace('>', r'\>')}
 
     @classmethod
     def ctor_accepts(cls, value, **_):
-        '''Register constructor as supporting any Packet value.'''
+        """Register constructor as supporting any Packet value."""
         return isinstance(value, Packet)
 
     def __init__(self, template, desc=None, **kargs):
@@ -161,22 +161,22 @@ if HAVE_PIPETOOL:
             self.post(self.high_convert(msg))
 
         def convert(self, msg):
-            '''Converts a message received on the low input into an
-               event (to be posted to the SM).'''
+            """Converts a message received on the low input into an
+               event (to be posted to the SM)."""
             return msg
 
         def high_convert(self, msg):
-            '''Converts a message received on the high input into an
-               event (to be posted to the SM).'''
+            """Converts a message received on the high input into an
+               event (to be posted to the SM)."""
             return msg
 
         def send(self, msg):
-            '''Publishes a message on the Box's low output.'''
+            """Publishes a message on the Box's low output."""
             self._gen_data(msg)
             #print('sent', repr(msg))
 
         def high_send(self, msg):
-            '''Publishes a message on the Box's high output.'''
+            """Publishes a message on the Box's high output."""
             self._gen_high_data(msg)
 
         def stop(self, sm_state=None):

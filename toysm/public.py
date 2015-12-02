@@ -24,16 +24,17 @@
 #
 ################################################################################
 
-'''
+"""
 Provide a public decorator that adds symbols to a module's __all__
 list of exported symbols.
 
 Taken from: http://code.activestate.com/recipes/576993-public-decorator-adds-an-item-to-__all__/
 
 where it is licensed under the MIT license.
-'''
+"""
 
 import sys
+
 
 def public(f):
     """"Use a decorator to avoid retyping function/class names.

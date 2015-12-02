@@ -32,8 +32,9 @@ except ImportError:
     # pylint: disable=import-error
     import Queue as queue
 
+
 class EventQueue:
-    '''Queue to store events posted to a StateMachine.'''
+    """Queue to store events posted to a StateMachine."""
 
     def __init__(self, dflt_prio=None):
         self._queue = []
@@ -45,7 +46,7 @@ class EventQueue:
         self.dflt_prio = dflt_prio
 
     def put(self, evt_data, prio=None):
-        '''Adds the Event to the queue.'''
+        """Adds the Event to the queue."""
         if prio is None:
             prio = self.dflt_prio
         with self._lock:
@@ -59,7 +60,7 @@ class EventQueue:
             self._counter += 1
 
     def get(self, timeout=None):
-        '''Returns the next (prio, evt_data) from the queue.'''
+        """Returns the next (prio, evt_data) from the queue."""
         with self._lock:
             if not self._queue:
                 # Queue is empty, the StateMachine is settled
@@ -75,9 +76,9 @@ class EventQueue:
             return prio, evt_data
 
     def settle(self, timeout=None):
-        '''Returns once the queue is empty and a consumer is waiting for the
+        """Returns once the queue is empty and a consumer is waiting for the
            next event, or when timeout has expired.
-           returns True if the queue is empty.'''
+           returns True if the queue is empty."""
         with self._lock:
             if self._queue or self._consumers == 0:
                 self._settled.wait(timeout)
