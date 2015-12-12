@@ -768,9 +768,11 @@ class TerminateState(_SinkState):
     def _enter_actions(self, sm):
         sm.stop()
 
+
 @public
 class EntryState(Junction):
     pass
+
 
 @public
 class ExitState(Junction):
@@ -918,18 +920,18 @@ class Transition(with_metaclass(TransitionMeta)):
         self.kind = kind
         self.desc = desc
         self.hooks = []
-        if kind is not self._ENTRY:
+        if kind is self._ENTRY:
+            self.source = source
+            self.target = target
+        else:
+            if kind is self.INTERNAL and target is not None:
+                raise IllFormedException('INTERNAL Transitions cannot '
+                                         'have a target')
             self.source = self.target = None
             if source:
                 source.add_transition(self)
             if target:
                 target.accept_transition(self)
-        else:
-            if kind is self.INTERNAL and target is not None:
-                raise IllFormedException('INTERNAL Transitions cannot '
-                                         'have a target')
-            self.source = source
-            self.target = target
 
     def is_triggered(self, sm, evt):
         """Returns a boolean indicating if the transition should be
@@ -1074,10 +1076,10 @@ class Timeout(Transition):
             self._sched_id = None
 
     def _timeout(self, sm):
-        '''Called back when the timer expires, an event
+        """Called back when the timer expires, an event
            is posted to the StateMachine that will trigger the
            Timeout transition.
-        '''
+        """
         sm.post(self)
         self._sched_id = None
 

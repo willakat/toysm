@@ -41,13 +41,12 @@ import time
 import subprocess
 from threading import Thread
 import sys
-
-from toysm.core import State, PseudoState, ParallelState, InitialState, Transition
-
+from toysm.core import State, PseudoState, ParallelState, InitialState, \
+    Transition
 from toysm.public import public
 from toysm.event_queue import EventQueue
-
 import logging
+
 LOG = logging.getLogger(__name__)
 
 # Dot binaries / command lines
@@ -78,6 +77,7 @@ def dot_attrs(obj, **overrides):
         d.update(overrides)
     else:
         d = obj.dot
+
     def resolve(item):
         """Resolves the value for a dot attribute, i.e.
            if the item is a callable use its return
@@ -89,9 +89,10 @@ def dot_attrs(obj, **overrides):
         if callable(v):
             v = v(obj)
         v = str(v)
-        if not(v.startswith('<') and v.endswith('>')):
+        if not (v.startswith('<') and v.endswith('>')):
             v = '"%s"' % v.replace('"', r'\"')
         return k, v
+
     return ';'.join('%s=%s' % (k, v)
                     for (k, v) in (resolve(i) for i in d.items()))
 
@@ -151,6 +152,7 @@ class SMState(object):
             return '%s key=%i' % (sm_str, self.key)
         else:
             return sm_str
+
 
 @public
 class StateMachine(object):
@@ -288,18 +290,18 @@ class StateMachine(object):
            ancestor between a state and the root adds 1 to its depth.
         """
         state = state or self._cstate
-        state._depth = depth        # pylint: disable = W0212
+        state._depth = depth  # pylint: disable = W0212
         for c in state.children:
             self._assign_depth(c, depth + 1)
 
     def _lca(self, a, b):
         """Returns paths to least common ancestor of states a and b."""
         if a is b:
-            return [a], [b] # LCA found
-        if a._depth < b._depth:     # pylint: disable = W0212
+            return [a], [b]  # LCA found
+        if a._depth < b._depth:  # pylint: disable = W0212
             a_path, b_path = self._lca(a, b.parent)
             return a_path, b_path + [b]
-        elif b._depth < a._depth:   # pylint: disable = W0212
+        elif b._depth < a._depth:  # pylint: disable = W0212
             a_path, b_path = self._lca(a.parent, b)
             return [a] + a_path, b_path
         else:
@@ -309,7 +311,7 @@ class StateMachine(object):
     def _get_sm_state(self, evt, sm_state=None):
         """Return the SMState (StateMachine instance) the
            evt event should be routed to."""
-        #FIXME: race-y with deletion. It is possible to have
+        # FIXME: race-y with deletion. It is possible to have
         #       an event posted and the SMState could be deleted
         #       before the event is processed.
         if sm_state is None:
@@ -392,7 +394,7 @@ class StateMachine(object):
             state.parent.child_completed(sm_state, state)
         else:
             # top level region completed.
-            state._exit(sm_state)   # pylint: disable=protected-access
+            state._exit(sm_state)  # pylint: disable=protected-access
             self.stop(sm_state=sm_state)
 
     def _process_std_event(self, sm_state, evt):
@@ -444,18 +446,18 @@ class StateMachine(object):
                 LOG.debug("Transitions to be processed: %s",
                           [str(t) for t in transitions])
             # pylint: disable=protected-access
-            #t, *transitions = transitions   # 'pop' a transition
+            # t, *transitions = transitions   # 'pop' a transition
             t, transitions = transitions[0], transitions[1:]
             LOG.debug("%s - following (%s) transition %s", sm_state, t.kind, t)
             if t.kind is Transition.INTERNAL:
-                t._action(sm_state, evt)    # pylint: disable = W0212
+                t._action(sm_state, evt)  # pylint: disable = W0212
                 continue
             src = t.source
-            tgt = t.target or t.source #if no target is defined, target is self
+            tgt = t.target or t.source  # if no target is defined, target is self
             s_path, t_path = self._lca(src, tgt)
             if src is not tgt \
-                and t.kind is not Transition._ENTRY \
-                and isinstance(s_path[-1], ParallelState):
+                    and t.kind is not Transition._ENTRY \
+                    and isinstance(s_path[-1], ParallelState):
                 raise Exception("Error: transition from %s to %s isn't allowed "
                                 "because source and target states are in "
                                 "orthogonal regions." %
@@ -464,7 +466,7 @@ class StateMachine(object):
             # Do state exit
             if t.kind != Transition._ENTRY:
                 only_children = len(s_path) > 1 or t.kind != Transition.EXTERNAL
-                LOG.debug('s_path %s, t_path %s, only_children=%s', 
+                LOG.debug('s_path %s, t_path %s, only_children=%s',
                           s_path, t_path, only_children)
                 if isinstance(s_path[0], PseudoState):
                     s_path[0]._exit(sm_state)
@@ -476,7 +478,7 @@ class StateMachine(object):
             # Do entry into new state
             if len(s_path) == 1 and t.kind == Transition.EXTERNAL:
                 s_path[0]._enter(sm_state)
-            for a, b in [(t_path[i], t_path[i+1])
+            for a, b in [(t_path[i], t_path[i + 1])
                          for i in range(len(t_path) - 1)]:
                 a.set_active_substate(sm_state, b, t)
                 b._enter(sm_state)
@@ -497,7 +499,7 @@ class StateMachine(object):
                 stream.write(_bytes('subgraph cluster_%s {\n' % id(state)))
                 stream.write(_bytes(attrs + "\n"))
                 if state.initial \
-                    and not isinstance(state.initial, InitialState):
+                        and not isinstance(state.initial, InitialState):
                     i = InitialState()
                     write_node(stream, i, transitions)
                     # pylint: disable = protected-access
@@ -533,7 +535,7 @@ class StateMachine(object):
             cmd = prg or XDOT
 
         # Go through all states and generate dot to create the graph
-        #with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
+        # with subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE) as proc:
         proc = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
         try:
             f = proc.stdin
@@ -561,12 +563,13 @@ if __name__ == "__main__":
     # TODO: replace this section with a decent example...
     # pylint: disable=pointless-statement, expression-not-assigned
     from toysm import Timeout, HistoryState, FinalState
-    #s = State()
-    #s1 = State('s1', parent=s, initial=True)
-    #s2 = State('s2', parent=s)
-    #f = FinalState(parent=s)
 
-    #s1 > s2 > Transition(lambda e:True, lambda sm,e:None) > f
+    # s = State()
+    # s1 = State('s1', parent=s, initial=True)
+    # s2 = State('s2', parent=s)
+    # f = FinalState(parent=s)
+
+    # s1 > s2 > Transition(lambda e:True, lambda sm,e:None) > f
 
     state_s1 = State('s1')
     state_s2 = ParallelState('s2')
@@ -584,7 +587,7 @@ if __name__ == "__main__":
     state_s0.add_state(state_s2)
     state_s0.add_state(state_fs)
     state_machine = StateMachine(state_s0)
-    #sm = fsm.StateMachine(s1, s2, fs)
+    # sm = fsm.StateMachine(s1, s2, fs)
 
 
     state_s1 >> 'a' >> state_s2 >> 'b' >> state_fs
