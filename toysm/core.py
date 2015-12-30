@@ -24,7 +24,6 @@
 # pylint: disable=unexpected-keyword-arg, no-value-for-parameter
 # pylint: disable=invalid-name
 
-import copy
 from threading import Thread, Event, Lock
 from inspect import isclass
 from six import with_metaclass
@@ -380,7 +379,7 @@ class State(object):
         """
         kind = {'entry': 'pre_entry',
                 'enter': 'pre_entry',
-                'exit':  'post_exit'}.get(kind, kind)
+                'exit': 'post_exit'}.get(kind, kind)
         self.hooks[kind].append((hook, args, kargs))
 
     def set_active_substate(self, sm, state, transition_followed):
@@ -756,9 +755,8 @@ class _SinkState(PseudoState):
     transition_terminal = True
 
     def add_transition(self, t):
-        raise IllFormedException(
-                "%s is a sink, it can't be the source of a transition" %
-                self.__class__.__name__)
+        raise IllFormedException("%s is a sink, it can't be the source of a "
+                                 "transition" % self.__class__.__name__)
 
 
 @public
@@ -970,7 +968,7 @@ class Transition(with_metaclass(TransitionMeta)):
         """
         # pylint: disable=unused-argument, no-self-use
         return evt is not None  # Not a completion event (Completion events
-                                # are recognized by CompletionTransition.
+        # are recognized by CompletionTransition.
 
     def _is_triggered(self, sm, evt):
         """Called to determine if the transition is enabled for the <evt>
@@ -1114,9 +1112,9 @@ class Timeout(Transition):
         """Enterring the source state causes a call to _timeout
            to be schedule.
         """
+        # pylint: disable = W0212
         self._sched_id = \
-            sm._sched.enter(  # pylint: disable = W0212
-                    self.delay, 10, self._timeout, [sm])
+            sm._sched.enter(self.delay, 10, self._timeout, [sm])
 
     def _cancel(self, sm, _):
         """Exiting the source state cancels the timer that was
@@ -1140,6 +1138,6 @@ class Timeout(Transition):
 
     def __copy__(self):
         cpy = type(self)(delay=self.delay)
-        return super(EqualsTransition, self).__copy__(cpy)
+        return super(Timeout, self).__copy__(cpy)
 
 # vim:expandtab:sw=4:sts=4

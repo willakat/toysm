@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014-2015 William Barsse
+# Copyright 2015 William Barsse
 #
 ################################################################################
 #
@@ -21,9 +21,16 @@
 #
 ################################################################################
 
+# pylint: disable=protected-access,no-member
+
+"""
+This module provides inheritance and composition behavior for StateMachine
+classes.
+"""
+
+import sys
 import copy
 import threading
-import inspect
 from six import with_metaclass
 
 from toysm.public import public
@@ -58,7 +65,7 @@ def create_copy_context():
 
             ...
     """
-    _copy_context_stack.new_ctx()
+    _COPY_CONTEXT_STACK.new_ctx()
 
 
 @public
@@ -79,7 +86,7 @@ def ignore_states(*states):
     if {type(s) for s in states} != {str}:
         raise BadSMDefinition("Ignored states must be referenced by attribute "
                               "name (e.g. a string).")
-    ctx = _copy_context_stack.get_ctx()
+    ctx = _COPY_CONTEXT_STACK.get_ctx()
     if ctx.copy_map:
         raise BadSMDefinition("Ignored states must be declared before they "
                               "are referenced by the StateMachine definition.")
@@ -105,7 +112,7 @@ def ignore_transitions(*transitions):
     if {type(t) for t in transitions} != {str}:
         raise BadSMDefinition("Ignored transitions must be referenced by "
                               "attribute name (e.g. a string).")
-    ctx = _copy_context_stack.get_ctx()
+    ctx = _COPY_CONTEXT_STACK.get_ctx()
     if ctx.copy_map:
         raise BadSMDefinition("Ignored transitions must be declared before they"
                               " are referenced by the StateMachine definition.")
@@ -116,88 +123,83 @@ def ignore_transitions(*transitions):
 # State and Transition overrides
 
 def _mk_override(item, attr):
-    def override(f):
-        setattr(item, attr, f)
-        return staticmethod(f)
+    """
+    Returns a function to be used as a decorator to overide an
+    attribute of a State or Transition.
+    """
+    def override(decorated_fn):
+        """
+        Returns a static version of the method provided as an argument and
+        sets the overridden attribute to the decorated function.
+        """
+        setattr(item, attr, decorated_fn)
+        return staticmethod(decorated_fn)
 
     return override
 
 
 @public
 def on_enter(state):
+    """Decorator used to override a State's on_enter function."""
     return _mk_override(state, '_on_enter')
 
 
 @public
 def on_exit(state):
+    """Decorator used to override a State's on_exit function."""
     return _mk_override(state, '_on_exit')
 
 
 @public
 def do_activity(state):
+    """Decorator used to override a State's do_activity function."""
     return _mk_override(state, 'do_activity')
 
 
 @public
 def trigger(transition):
+    """Decorator used to override a Transitions's trigger function."""
     return _mk_override(transition, 'trigger')
 
 
 @public
 def action(transition):
+    """Decorator used to override a Transitions's action function."""
     return _mk_override(transition, 'action')
 
 
 ################################################################################
 # Copy of State/Transition graphs
 
-def _resolve_symbol(symbol, expected_type=None):
-    # Determine callers globals & locals
-    this_module = None
-    path = symbol.split('.')
-    try:
-        for frame in [f[0] for f in inspect.stack()]:
-            module = inspect.getmodule(frame)
-            if this_module is None:
-                this_module = module
-                continue
-            if module != this_module:
-                # Go up one frame relative to the definition
-                # of the calling class.
-                # This is very hackish, the proper way to achieve
-                # this would be to do an LEGB lookup from within
-                # the StateMachine subclass definition context.
-                frame = frame.f_back
-                break
-        caller_globals, caller_locals = frame.f_globals, frame.f_locals
-
-        # Resolve the symbol in the caller's context
-        elt = eval('.'.join(path[:-1]), caller_globals, caller_locals)
-        resolved = elt.__dict__[path[-1]]
-        if expected_type and type(resolved) != expected_type:
-            raise BadSMDefinition("Excpected %s to be an instance of %s",
-                                  symbol, expected_type.__name__)
-    finally:
-        del frame
-
 
 class _SMCopyContextStack(threading.local):
+    """
+    Thread Local object that holds a stack of _SMCopyContext objects.
+
+    The _SMCopyContext on top of the stack is considered the "current"
+    copy context. The stack is manipulated by Xmeta.__new__ in order
+    to ensure that the same set of States is manipulated during the
+    definition of a new StateMachine subclass.
+    """
     def __init__(self):
         super(_SMCopyContextStack, self).__init__()
         self._stack = []
 
     def get_ctx(self):
+        """returns the "current" copy context."""
         if not self._stack:
             return self.new_ctx()
         else:
             return self._stack[-1]
 
     def new_ctx(self):
+        """returns a new copy context."""
         ctx = SMCopyContext()
         self._stack.append(ctx)
         return ctx
 
     def pop_ctx(self):
+        """pops off the copy context at the top of the stack and returns it."""
         if self._stack:
             return self._stack.pop()
         else:
@@ -207,10 +209,13 @@ class _SMCopyContextStack(threading.local):
             return SMCopyContext()
 
 
-_copy_context_stack = _SMCopyContextStack()
+_COPY_CONTEXT_STACK = _SMCopyContextStack()
 
 
-class SMCopyContext:
+class SMCopyContext(object):
+    """Convenience class that holds all the information used to create
+       a copy of a superclass' States/Transitions during the definition
+       of a new StateMachine subclass."""
     def __init__(self):
         self.copy_map = {}
         self.ignored_states = set()
@@ -283,7 +288,7 @@ def _sm_copy(state, copy_ctx, cls=None):
     # Recursively copy children. The parent isn't copied,
     # it is therefore up to a copied parent to connect
     # with the copied children.
-    for c in state.children:
+    for c in state.children:    # pylint: disable=invalid-name
         if c in ignored_states:
             continue
         c_copy = _sm_copy(c, copy_ctx, cls)
@@ -311,7 +316,7 @@ def _find_reachable(states, reachable=None):
     """
     if reachable is None:
         reachable = set()
-    for s in states:
+    for s in states:    # pylint: disable=invalid-name
         if s in reachable:
             continue
         reachable.add(s)
@@ -328,6 +333,9 @@ def _find_reachable(states, reachable=None):
 # Base classes for StateMachines
 
 class Xmeta(type):
+    """
+    Meta class that provides the StateMachine inheritance behavior.
+    """
     def __new__(mcs, name, bases, dct):
         # x collect the copy_map in the ThreadLocal if one is defined
 
@@ -356,37 +364,16 @@ class Xmeta(type):
         #     for StateMachine instances
         #   + if there are several states, only one must be an "Initial" state.
 
-        # x automatically name states after their attribute (if they
-        #   haven't been named explicitly)
+        # x automatically name states after the correspoinding attribute (if
+        #   they haven't been named explicitly)
 
-        # Problems:
-        # - if ignored_states is expressed something like: [ SuperSM.s1, ... ]
-        #   this will trigger a (useless) copy. => Use quoted names.
-        # - when using quoted names, SMContext needs to be convert
-        #   to real State/Transition objects.
-        # - support for States not bound to a class attribute:
-        #   State() >> SomeStateMachine.some_state
-        #   options:
-        #   1. force State() to be bound to an attribute => meh
-        #   2. Change >> operator to record additional info in the
-        #      CopyContext
-        #   3. modify SomeStateMachine.some_state (which is a copy) to
-        #      record inbound transition when accept_transition is called.
-        #      Still leaves the problem of
-        #       State() >> State () >> XX.some_state
-        #   4. State could have back-transition information:
-        #      just a matter of following forward and back transitions
-        #      to determine closure.
-
-        # 1. Generate states/transitions maps for the new class
-        #    by merging those from the superclasses.
-        ctx = _copy_context_stack.pop_ctx()
+        ctx = _COPY_CONTEXT_STACK.pop_ctx()
         states = {}
         transitions = {}
         unknown_ignored_states = set(ctx.ignored_states)
         unknown_ignored_transitions = set(ctx.ignored_transitions)
         copied_initial = False
-        for b in bases:
+        for b in bases: # pylint: disable=invalid-name
             if not (hasattr(b, '_states') or hasattr(b, '_transitions')):
                 continue
             # copy the first non-ignored base class initial state
@@ -400,16 +387,14 @@ class Xmeta(type):
                     # in the class being defined or from another one of the
                     # base classes.
                     copied_initial = True
-            states.update(
-                    {attr: _sm_copy(state, ctx, b)
-                     for (attr, state) in b._states.items()
-                     if attr not in states and
-                     attr not in ctx.ignored_states})
-            transitions.update(
-                    {attr: ctx.copy_map[trans]
-                     for (attr, trans) in b._transitions.items()
-                     if attr not in transitions and
-                     trans in ctx.copy_map})
+            states.update({attr: _sm_copy(state, ctx, b)
+                           for (attr, state) in b._states.items()
+                           if attr not in states and
+                           attr not in ctx.ignored_states})
+            transitions.update({attr: ctx.copy_map[trans]
+                                for (attr, trans) in b._transitions.items()
+                                if attr not in transitions and
+                                trans in ctx.copy_map})
             unknown_ignored_states -= set(b._states.keys())
             unknown_ignored_transitions -= set(b._transitions.keys())
         if unknown_ignored_states:
@@ -423,7 +408,8 @@ class Xmeta(type):
 
         # 2. update the states/transitions with any declarations
         #    from the scope of the new class' definition.
-        for (attr, value) in dct.items():
+        for (attr, value) in dct.items() \
+                if sys.version_info[0] < 3 else list(dct.items()):
             if isinstance(value, State):
                 states[attr] = value
                 # Automatically assign a name to states that weren't
@@ -448,6 +434,7 @@ class Xmeta(type):
             top_lvl_states = {s for s in _find_reachable(known_states)
                               if s.parent is None}
             if len(top_lvl_states) == 1:
+                # pylint: disable=undefined-loop-variable
                 for top in top_lvl_states:
                     break
                 dct['_cstate'] = top
@@ -456,22 +443,23 @@ class Xmeta(type):
                 initial_candidates = {s for s in top_lvl_states
                                       if isinstance(s, InitialState)}
                 if len(initial_candidates) != 1:
-                    raise IllFormedException(
-                            "StateMachine definition needs exactly"
-                            " one top-level initial state.")
+                    raise IllFormedException("StateMachine definition needs "
+                                             "exactly one top-level initial "
+                                             "state.")
                 top = dct['_cstate'] = State(name=name)
                 dct['_auto_cstate'] = True
-                for s in top_lvl_states:
+                for s in top_lvl_states:    # pylint: disable=invalid-name
                     top.add_state(s)
         return type.__new__(mcs, name, bases, dct)
 
     def __getattr__(cls, item):
-        state = cls.get_state(item)
-        if state is not None:
-            return state
-        transition = cls.get_transition(item)
-        if transition is not None:
-            return transition
+        if item != '_states' and item != '_transitions':
+            state = cls.get_state(item)
+            if state is not None:
+                return state
+            transition = cls.get_transition(item)
+            if transition is not None:
+                return transition
         raise AttributeError("StateMachine has no '%s' State/Transition" % item)
 
     def __dir__(cls):
@@ -483,6 +471,10 @@ class Xmeta(type):
 
 
 class XStateMachine(with_metaclass(Xmeta, StateMachine)):
+    """
+    Provides composition behavior and isolation for Transitions/States
+    within a StateMachine subclass.
+    """
     def __init__(self):
         # To be removed at one point...
         super(XStateMachine, self).__init__(self._cstate)
@@ -497,7 +489,7 @@ class XStateMachine(with_metaclass(Xmeta, StateMachine)):
         attribute names."""
         if name in cls._states:
             state = cls._states[name]
-            ctx = _copy_context_stack.get_ctx()
+            ctx = _COPY_CONTEXT_STACK.get_ctx()
             if name in ctx.ignored_states:
                 raise BadSMDefinition("Reference to ignored state %s" %
                                       state)
@@ -512,7 +504,7 @@ class XStateMachine(with_metaclass(Xmeta, StateMachine)):
         attribute names."""
         if name in cls._transitions:
             transition = cls._transitions[name]
-            ctx = _copy_context_stack.get_ctx()
+            ctx = _COPY_CONTEXT_STACK.get_ctx()
             if name in ctx.ignored_transitions:
                 raise BadSMDefinition("Reference to ignored transition %s" %
                                       transition)
@@ -529,24 +521,7 @@ class XStateMachine(with_metaclass(Xmeta, StateMachine)):
         This method provides a simple way to achieve StateMachine
         composition.
         """
-        ctx = _copy_context_stack.get_ctx()
+        ctx = _COPY_CONTEXT_STACK.get_ctx()
         return _sm_copy(cls._cstate, ctx)
-
-# s1 = State()
-
-
-# class C(XStateMachine):
-#     print 't1', id(XStateMachine.s1)
-#     print 't2', id(XStateMachine.s1)
-#     InitialState() >> XStateMachine.s1
-#     print repr(XStateMachine.s1.rev_transitions)
-#
-#     @on_enter(XStateMachine.s1)
-#     def s1_enter(sm, state):
-#         print "s1 entered!"
-
-# x = XStateMachine()
-# c = C()
-# c.graph()
 
 # vim:expandtab:sw=4:sts=4

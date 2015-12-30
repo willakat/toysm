@@ -25,13 +25,14 @@ import copy
 import unittest
 
 from toysm import *
-from toysm.sm2 import (ignore_states, XStateMachine, BadSMDefinition,
-                       on_enter, on_exit, trigger, action)
+from toysm.base_sm import (ignore_states, ignore_transitions,
+                           XStateMachine, BadSMDefinition,
+                           on_enter, on_exit, trigger, action)
 from sm_trace import Trace, trace
 
 import logging
 LOG_LEVEL = logging.INFO
-LOG_LEVEL = logging.DEBUG
+# LOG_LEVEL = logging.DEBUG
 
 logging.basicConfig(level=LOG_LEVEL)
 
@@ -109,8 +110,6 @@ class TestInheritance(unittest.TestCase):
         pass
 
     def test_ignore_states(self):
-        from toysm.sm2 import XStateMachine
-
         class C(XStateMachine):
             i = InitialState()
             s1 = State()
@@ -134,8 +133,6 @@ class TestInheritance(unittest.TestCase):
         self.assertSetEqual({'t_s1_b'}, set(D._transitions.keys()))
 
     def test_ignore_transitions(self):
-        from toysm.sm2 import XStateMachine, ignore_transitions
-
         class C(XStateMachine):
             i = InitialState()
             s1 = State()
@@ -159,7 +156,6 @@ class TestInheritance(unittest.TestCase):
     def test_inexistent_ignore(self):
         """Attempts to ignore States/Transitions unknown to at least
            on super class should raise a BadSMDefinition exception."""
-        from toysm.sm2 import XStateMachine, ignore_states, ignore_transitions
         class C(XStateMachine):
             s1 = State()
             InitialState() >> s1
@@ -328,3 +324,8 @@ class TestComposition(unittest.TestCase):
                                         (saved_refs["A.a_1"], "entry"),
                                         (saved_refs["A.a_1"], "exit"),
                                         (saved_refs["A.a_2"], "entry")]))
+
+if __name__ == '__main__':
+    unittest.main()
+
+# vim:expandtab:sw=4:sts=4
