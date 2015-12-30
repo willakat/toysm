@@ -22,6 +22,7 @@
 ################################################################################
 
 from toysm.core import *
+from toysm.base_sm import *
 from toysm.fsm import *
 
 # PEP 396

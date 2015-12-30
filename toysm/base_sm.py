@@ -34,7 +34,6 @@ import threading
 from six import with_metaclass
 
 from toysm.public import public
-from toysm.fsm import StateMachine
 from toysm.core import Transition, State, InitialState, IllFormedException
 
 
@@ -332,7 +331,7 @@ def _find_reachable(states, reachable=None):
 ################################################################################
 # Base classes for StateMachines
 
-class Xmeta(type):
+class SMMeta(type):
     """
     Meta class that provides the StateMachine inheritance behavior.
     """
@@ -463,21 +462,21 @@ class Xmeta(type):
         raise AttributeError("StateMachine has no '%s' State/Transition" % item)
 
     def __dir__(cls):
-        cls_dir = set(dir(super(XStateMachine, cls)) +
+        cls_dir = set(dir(super(BaseStateMachine, cls)) +
                       cls.__dict__.keys() +
                       cls._states.keys() +
                       cls._transitions.keys())
         return sorted(cls_dir)
 
 
-class XStateMachine(with_metaclass(Xmeta, StateMachine)):
+class BaseStateMachine(with_metaclass(SMMeta)):
     """
     Provides composition behavior and isolation for Transitions/States
     within a StateMachine subclass.
     """
     def __init__(self):
         # To be removed at one point...
-        super(XStateMachine, self).__init__(self._cstate)
+        super(BaseStateMachine, self).__init__(self._cstate)
         # super(XStateMachine, self).__init__()
 
     @classmethod

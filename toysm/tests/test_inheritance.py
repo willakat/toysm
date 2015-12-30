@@ -26,7 +26,7 @@ import unittest
 
 from toysm import *
 from toysm.base_sm import (ignore_states, ignore_transitions,
-                           XStateMachine, BadSMDefinition,
+                           BadSMDefinition,
                            on_enter, on_exit, trigger, action)
 from sm_trace import Trace, trace
 
@@ -110,7 +110,7 @@ class TestInheritance(unittest.TestCase):
         pass
 
     def test_ignore_states(self):
-        class C(XStateMachine):
+        class C(StateMachine):
             i = InitialState()
             s1 = State()
             s2_1 = State()
@@ -133,7 +133,7 @@ class TestInheritance(unittest.TestCase):
         self.assertSetEqual({'t_s1_b'}, set(D._transitions.keys()))
 
     def test_ignore_transitions(self):
-        class C(XStateMachine):
+        class C(StateMachine):
             i = InitialState()
             s1 = State()
             s2_1 = State()
@@ -156,7 +156,7 @@ class TestInheritance(unittest.TestCase):
     def test_inexistent_ignore(self):
         """Attempts to ignore States/Transitions unknown to at least
            on super class should raise a BadSMDefinition exception."""
-        class C(XStateMachine):
+        class C(StateMachine):
             s1 = State()
             InitialState() >> s1
 
@@ -174,7 +174,7 @@ class TestInheritance(unittest.TestCase):
     def test_state_override(self):
         saved_refs = {}
 
-        class C(XStateMachine):
+        class C(StateMachine):
             s1 = State()
             InitialState() >> s1
             s1 >> FinalState()
@@ -214,7 +214,7 @@ class TestInheritance(unittest.TestCase):
     def test_transition_override(self):
         saved_refs = {}
 
-        class C(XStateMachine):
+        class C(StateMachine):
             t = Transition()
             @trigger(t)
             def a_trigger(sm, evt):
@@ -262,7 +262,7 @@ class TestInheritance(unittest.TestCase):
         self.assertTrue(Trace.contains([(saved_refs["D.t"], "b action")]))
 
     def test_transition_override2(self):
-        class C(XStateMachine):
+        class C(StateMachine):
             t = Transition()
             @trigger(t)
             def a_trigger(sm, evt):
@@ -300,13 +300,13 @@ class TestComposition(unittest.TestCase):
     def test_simple_composition(self):
         saved_refs = {}
 
-        class A(XStateMachine):
+        class A(StateMachine):
             a_0 = InitialState()
             a_1 = State()
             a_2 = FinalState()
             a_0 >> a_1 >> 'b' >> a_2
 
-        class B(XStateMachine):
+        class B(StateMachine):
             b_0 = InitialState()
             b_0 >> State() >> 'a' >> A.as_state()
             trace([b_0, A.a_1, A.a_2])
