@@ -25,7 +25,7 @@ import copy
 import unittest
 
 from toysm import *
-from toysm.base_sm import (ignore_states, ignore_transitions,
+from toysm.base_sm import (mask_states, mask_transitions,
                            BadSMDefinition,
                            on_enter, on_exit, trigger, action)
 from sm_trace import Trace, trace
@@ -124,7 +124,7 @@ class TestInheritance(unittest.TestCase):
             s1 >> t_s1_b >> s2_2 >> s3
 
         class D(C):
-            ignore_states('s2_1')
+            mask_states('s2_1')
 
         self.assertEqual(len(C._states) - 1, len(D._states))
         self.assertSetEqual(set(C._states.keys()) - {'s2_1'},
@@ -147,7 +147,7 @@ class TestInheritance(unittest.TestCase):
             s1 >> t_s1_b >> s2_2 >> s3
 
         class D(C):
-            ignore_transitions('t_s1_a')
+            mask_transitions('t_s1_a')
 
         self.assertEqual(len(C._states), len(D._states))
         self.assertEqual(len(C._transitions) - 1, len(D._transitions))
@@ -162,11 +162,11 @@ class TestInheritance(unittest.TestCase):
 
         def bad_ignore_state():
             class D(C):
-                ignore_states('no_such_state')
+                mask_states('no_such_state')
 
         def bad_ignore_transition():
             class D(C):
-                ignore_transitions('no_such_transition')
+                mask_transitions('no_such_transition')
 
         self.assertRaises(BadSMDefinition, bad_ignore_state)
         self.assertRaises(BadSMDefinition, bad_ignore_transition)

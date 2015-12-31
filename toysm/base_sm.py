@@ -68,13 +68,13 @@ def create_copy_context():
 
 
 @public
-def ignore_states(*states):
+def mask_states(*states):
     """
     Declare states to be ignored in the context of the current
     StateMachine definition.
 
     Multiple calls are allowed and their effect is cumulative, however
-    a BadSMDefinition exception will be raised if ignore_states are used
+    a BadSMDefinition exception will be raised if mask_states are used
     after having accessed states or transitions from superclasses.
 
     Args:
@@ -83,23 +83,23 @@ def ignore_states(*states):
                      defined.
     """
     if {type(s) for s in states} != {str}:
-        raise BadSMDefinition("Ignored states must be referenced by attribute "
+        raise BadSMDefinition("Masked states must be referenced by attribute "
                               "name (e.g. a string).")
     ctx = _COPY_CONTEXT_STACK.get_ctx()
     if ctx.copy_map:
-        raise BadSMDefinition("Ignored states must be declared before they "
+        raise BadSMDefinition("Masked states must be declared before they "
                               "are referenced by the StateMachine definition.")
-    ctx.ignored_states |= set(states)
+    ctx.masked_states |= set(states)
 
 
 @public
-def ignore_transitions(*transitions):
+def mask_transitions(*transitions):
     """
     Declare transitions to be ignored in the context of the current
     StateMachine definition.
 
     Multiple calls are allowed and their effect is cumulative, however
-    a BadSMDefinition exception will be raised if ignore_transitions are used
+    a BadSMDefinition exception will be raised if mask_transitions are used
     after having accessed states or transitions from superclasses.
 
     Args:
@@ -109,13 +109,13 @@ def ignore_transitions(*transitions):
     """
 
     if {type(t) for t in transitions} != {str}:
-        raise BadSMDefinition("Ignored transitions must be referenced by "
+        raise BadSMDefinition("Masked transitions must be referenced by "
                               "attribute name (e.g. a string).")
     ctx = _COPY_CONTEXT_STACK.get_ctx()
     if ctx.copy_map:
-        raise BadSMDefinition("Ignored transitions must be declared before they"
+        raise BadSMDefinition("Masked transitions must be declared before they"
                               " are referenced by the StateMachine definition.")
-    ctx.ignored_transitions |= set(transitions)
+    ctx.masked_transitions |= set(transitions)
 
 
 ################################################################################
@@ -226,21 +226,35 @@ class SMCopyContext(object):
        of a new StateMachine subclass."""
     def __init__(self):
         self.copy_map = {}
-        self.ignored_states = set()
-        self.ignored_transitions = set()
+        self.masked_states = set()
+        self.masked_transitions = set()
 
 
-def _get_ignored(copy_ctx, cls):
+def _get_masked(copy_ctx, cls):
+    """
+    Returns the set of masked State/Transition objects for cls.
+
+    The State/Transition objects are those declared/referenced by cls.
+
+    Args:
+        copy_ctx: _SMCopyContext source of the string names of the
+                  State/Transitions to be masked.
+        cls:      Class in which to lookup the masked State/Transitions.
+
+    Returns:
+
+    """
+
     if cls is None:
-        ignored_states = set()
-        ignored_transitions = set()
+        masked_states = set()
+        masked_transitions = set()
     else:
-        ignored_states = {cls._states[s] for s in copy_ctx.ignored_states
-                          if s in cls._states}
-        ignored_transitions = {cls._transitions[t]
-                               for t in copy_ctx.ignored_transitions
-                               if t in cls._transitions}
-    return ignored_states, ignored_transitions
+        masked_states = {cls._states[s] for s in copy_ctx.masked_states
+                         if s in cls._states}
+        masked_transitions = {cls._transitions[t]
+                              for t in copy_ctx.masked_transitions
+                              if t in cls._transitions}
+    return masked_states, masked_transitions
 
 
 def _sm_copy(state, copy_ctx, cls=None):
@@ -266,23 +280,23 @@ def _sm_copy(state, copy_ctx, cls=None):
                   The relationship between the State sm_copy
                   is added to the copy_map.
 
-                  copy_ctx.{ignore_states,ignore_transitions} will
+                  copy_ctx.{masked_states,masked_transitions} will
                   be used to skip any States/Transitions they contain.
                   The resulting State/Transition graph will therefore
                   be a partial copy.
         cls:      Class sm_copy was invoked for (e.g. <Class>.<state attribute>)
-                  Will be used to resolve ignored_states and
-                  ignored_transitions.
+                  Will be used to resolve masked_states and
+                  masked_transitions.
     """
     copy_map = copy_ctx.copy_map
     if state in copy_map:
         return copy_map[state]
-    ignored_states, ignored_transitions = _get_ignored(copy_ctx, cls)
-    if state in ignored_states:
+    masked_states, masked_transitions = _get_masked(copy_ctx, cls)
+    if state in masked_states:
         return
     copy_map[state] = s_copy = copy.copy(state)
     for trans in state.transitions:
-        if trans.target in ignored_states or trans in ignored_transitions:
+        if trans.target in masked_states or trans in masked_transitions:
             continue
         trans_copy = copy_map.get(trans)
         if trans_copy is None:
@@ -297,7 +311,7 @@ def _sm_copy(state, copy_ctx, cls=None):
     # it is therefore up to a copied parent to connect
     # with the copied children.
     for c in state.children:    # pylint: disable=invalid-name
-        if c in ignored_states:
+        if c in masked_states:
             continue
         c_copy = _sm_copy(c, copy_ctx, cls)
         c_copy.set_parent(s_copy, initial=c is state.initial)
@@ -356,8 +370,8 @@ class SMMeta(type):
         #   the copy_map, if so _state/_map is updated with the value from
         #   copy_map. Otherwise a fresh copy of the State/Transition is
         #   used.
-        #   If there is either an ignored_states or
-        #   ignored_transitions in dict, then the State/Transition should be
+        #   If there is either an masked_states or
+        #   masked_transitions in dict, then the State/Transition should be
         #   skipped.
 
         # x perform replacements of overridden SM elements in the corresponding
@@ -378,19 +392,19 @@ class SMMeta(type):
         ctx = _COPY_CONTEXT_STACK.pop_ctx()
         states = {}
         transitions = {}
-        unknown_ignored_states = set(ctx.ignored_states)
-        unknown_ignored_transitions = set(ctx.ignored_transitions)
+        unknown_masked_states = set(ctx.masked_states)
+        unknown_masked_transitions = set(ctx.masked_transitions)
         copied_initial = False
         for b in bases: # pylint: disable=invalid-name
             if not (hasattr(b, '_states') or hasattr(b, '_transitions')):
                 continue
-            # copy the first non-ignored base class initial state
+            # copy the first non-masked base class initial state
             if not copied_initial:
                 if not b._auto_cstate:
                     _sm_copy(b._cstate, ctx, b)
                     copied_initial = True
                 elif _sm_copy(b._cstate.initial, ctx, b) is not None:
-                    # If the initial state of the b's _cstate is an ignored
+                    # If the initial state of the b's _cstate is a masked
                     # state, it is skipped (i.e. Initial state will be provided
                     # in the class being defined or from another one of the
                     # base classes.
@@ -398,21 +412,21 @@ class SMMeta(type):
             states.update({attr: _sm_copy(state, ctx, b)
                            for (attr, state) in b._states.items()
                            if attr not in states and
-                           attr not in ctx.ignored_states})
+                           attr not in ctx.masked_states})
             transitions.update({attr: ctx.copy_map[trans]
                                 for (attr, trans) in b._transitions.items()
                                 if attr not in transitions and
                                 trans in ctx.copy_map})
-            unknown_ignored_states -= set(b._states.keys())
-            unknown_ignored_transitions -= set(b._transitions.keys())
-        if unknown_ignored_states:
-            raise BadSMDefinition("The following ignored states were not "
+            unknown_masked_states -= set(b._states.keys())
+            unknown_masked_transitions -= set(b._transitions.keys())
+        if unknown_masked_states:
+            raise BadSMDefinition("The following masked states were not "
                                   "defined in any superclass of %s: %s" %
-                                  (name, unknown_ignored_states))
-        if unknown_ignored_transitions:
-            raise BadSMDefinition("The following ignored transitions were not "
+                                  (name, unknown_masked_states))
+        if unknown_masked_transitions:
+            raise BadSMDefinition("The following masked transitions were not "
                                   "defined in any superclass of %s: %s" %
-                                  (name, unknown_ignored_transitions))
+                                  (name, unknown_masked_transitions))
 
         # 2. update the states/transitions with any declarations
         #    from the scope of the new class' definition.
@@ -498,8 +512,8 @@ class BaseStateMachine(with_metaclass(SMMeta)):
         if name in cls._states:
             state = cls._states[name]
             ctx = _COPY_CONTEXT_STACK.get_ctx()
-            if name in ctx.ignored_states:
-                raise BadSMDefinition("Reference to ignored state %s" %
+            if name in ctx.masked_states:
+                raise BadSMDefinition("Reference to masked state %s" %
                                       state)
             return _sm_copy(state, ctx, cls)
 
@@ -513,8 +527,8 @@ class BaseStateMachine(with_metaclass(SMMeta)):
         if name in cls._transitions:
             transition = cls._transitions[name]
             ctx = _COPY_CONTEXT_STACK.get_ctx()
-            if name in ctx.ignored_transitions:
-                raise BadSMDefinition("Reference to ignored transition %s" %
+            if name in ctx.masked_transitions:
+                raise BadSMDefinition("Reference to masked transition %s" %
                                       transition)
             # force copy of source state (note this will not do anything
             # if the State was already copied)
@@ -522,15 +536,29 @@ class BaseStateMachine(with_metaclass(SMMeta)):
             return ctx.copy_map[transition]
 
     @classmethod
-    def as_state(cls):
+    def as_state(cls, state_map=None, transition_map=None):
         """"
         Returns a copy of the this StateMachine's top-level state.
 
         This method provides a simple way to achieve StateMachine
         composition.
+
+        Args:
+            state_map(dict):      map that will be updated with named
+                                  states from the copied StateMachine.
+                                  The values of the map will be references
+                                  to the fresh copies of the corresponding
+                                  State objects in the new graph.
+            transition_map(dict): as above for Transitions.
         """
         with _CopyContextMgr() as ctx:
-#        ctx = _COPY_CONTEXT_STACK.get_ctx()
-           return _sm_copy(cls._cstate, ctx)
+            state = _sm_copy(cls._cstate, ctx)
+            if state_map is not None:
+                for attr, orig_state in cls._states.items():
+                    state_map[attr] = ctx.copy_map[orig_state]
+            if transition_map is not None:
+                for attr, orig_trans in cls._transitions.items():
+                    transition_map[attr] = ctx.copy_map[orig_trans]
+            return state
 
 # vim:expandtab:sw=4:sts=4
