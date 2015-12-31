@@ -308,11 +308,9 @@ class TestComposition(unittest.TestCase):
 
         class B(StateMachine):
             b_0 = InitialState()
-            b_0 >> State() >> 'a' >> A.as_state()
-            trace([b_0, A.a_1, A.a_2])
+            b_0 >> State() >> 'a' >> A.as_state(state_map=saved_refs)
+            trace([b_0, saved_refs["a_1"], saved_refs["a_2"]])
             saved_refs["B.b_0"] = b_0
-            saved_refs["A.a_1"] = A.a_1
-            saved_refs["A.a_2"] = A.a_2
 
         b = B()
         b.post('a', 'b')
@@ -321,9 +319,9 @@ class TestComposition(unittest.TestCase):
 
         self.assertTrue(Trace.contains([(saved_refs["B.b_0"], "entry"),
                                         (saved_refs["B.b_0"], "exit"),
-                                        (saved_refs["A.a_1"], "entry"),
-                                        (saved_refs["A.a_1"], "exit"),
-                                        (saved_refs["A.a_2"], "entry")]))
+                                        (saved_refs["a_1"], "entry"),
+                                        (saved_refs["a_1"], "exit"),
+                                        (saved_refs["a_2"], "entry")]))
 
     def test_multi_composition(self):
         saved_refs = {}
