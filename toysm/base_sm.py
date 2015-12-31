@@ -208,6 +208,15 @@ class _SMCopyContextStack(threading.local):
             return SMCopyContext()
 
 
+class _CopyContextMgr(object):
+    """Context Manager to create a local copy context"""
+    def __enter__(self):
+        return _COPY_CONTEXT_STACK.new_ctx()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _COPY_CONTEXT_STACK.pop_ctx()
+        return False
+
 _COPY_CONTEXT_STACK = _SMCopyContextStack()
 
 
@@ -520,7 +529,8 @@ class BaseStateMachine(with_metaclass(SMMeta)):
         This method provides a simple way to achieve StateMachine
         composition.
         """
-        ctx = _COPY_CONTEXT_STACK.get_ctx()
-        return _sm_copy(cls._cstate, ctx)
+        with _CopyContextMgr() as ctx:
+#        ctx = _COPY_CONTEXT_STACK.get_ctx()
+           return _sm_copy(cls._cstate, ctx)
 
 # vim:expandtab:sw=4:sts=4

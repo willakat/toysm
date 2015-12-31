@@ -325,6 +325,36 @@ class TestComposition(unittest.TestCase):
                                         (saved_refs["A.a_1"], "exit"),
                                         (saved_refs["A.a_2"], "entry")]))
 
+    def test_multi_composition(self):
+        saved_refs = {}
+
+        class A(StateMachine):
+            a_0 = InitialState()
+            a_1 = State()
+            a_2 = FinalState()
+            a_0 >> a_1 >> 'a' >> a_2
+
+        class B(StateMachine):
+            b_0 = InitialState()
+            b_1 = A.as_state()
+            b_2 = A.as_state()
+            b_0 >> b_1 >> b_2 >> FinalState()
+            trace([b_1, b_2])
+            saved_refs["B.b_1"] = b_1
+            saved_refs["B.b_2"] = b_2
+
+        b = B()
+        b.post('a', 'a')
+        b.start()
+        b.join(.1)
+
+        self.assertIsNot(saved_refs["B.b_1"], saved_refs["B.b_2"])
+        self.assertTrue(Trace.contains([(saved_refs["B.b_1"], "entry"),
+                                        (saved_refs["B.b_1"], "exit"),
+                                        (saved_refs["B.b_2"], "entry"),
+                                        (saved_refs["B.b_2"], "exit")]))
+
+
 if __name__ == '__main__':
     unittest.main()
 
