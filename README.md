@@ -311,6 +311,24 @@ MyStateMachineVariant and *mask* "got_a".
     mysm.post('a', 'c', 'a')
     mysm.join(1)
 
+The first 'a' event posted is ignored since MyOtherStateMachineVariant
+doesn't have the "got_a" state (or the associated transition from "wait_a_b").
+The resulting output is therefore only due to the last two events:
+
+    Leaving state {State-got_c}
+    Got 'b' event followed by an 'a' event
+    ... or maybe 'c' was first followed
+
+Graphing MyStateMachineVariant and MyOtherStateMachineVariant is an easy
+way to show their differences:
+
+    MyStateMachineVariant().graph(dot="rankdir=LR")
+    MyOtherStateMachineVariant().graph(dot="rankdir=LR")
+
+![MyStateMachineVariant](images/sm_inheritance_1.png)
+![MyOtherStateMachineVariant](images/sm_inheritance_2.png)
+
+
 It is possible to mask transitions using the same principle by using the
 mask_transitions function inside a StateMachine subclass definition.
 
@@ -335,6 +353,8 @@ And compose several copies of A into a larger StateMachine:
         # we need at leas one State or Transition attribute:
         i = InitialState()
         i >> A.as_state() >> 'b' >> A.as_state() >> FinalState()
+
+![B StateMachine based on the A StateMachine](images/sm_composition.png)
 
 Now if we run the B StateMachine:
 
