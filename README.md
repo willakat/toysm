@@ -20,6 +20,8 @@ List of features supported in ToySM
 
 * Simple syntax to assemble States and Transition into a StateMachine
 
+* Inheritance & Composition semantics to have a building-block approach to state machines.
+
 * Compatible with Python2 and Python3
 
 * Integration with [Scapy] [2]
@@ -195,7 +197,178 @@ instance:
 ### Debugging
 ### Parallel States
 ### Layered StateMachines
+### Inheritance and Composition
+#### Inheritance
+Some times you will find that you want to introduce a variation to an
+existing StateMachine and would prefer avoiding a complete redefinition
+to reep the usual benefits in avoiding code duplication.
+
+The first step involves defining the defining a subclass of StateMachine:
+    
+    from toysm import *
+    
+    class MyStateMachine(StateMachine):
+        # States we'll be using. Note for the StateMachine to actually
+        # work, there must be at least one attribute in MyStateMachine that
+        # designates either a State or a Transition
+        wait_a_b = State()
+        got_a = State()
+        got_b = State()
+        final_state = FinalState()
+        
+        # Transitions between our states
+        ## A named transition we'll tinker with
+        trans_ba = EqualsTransition('a') 
+        
+        ## the rest of our transitions
+        InitialState() >> wait_a_b
+        wait_a_b >> 'a' >> got_a >> final_state
+        wait_a_b >> 'b' >> got_b >> trans_ba >> final_state
+        
+        @on_enter(got_a)
+        def a_enter(sm, state):
+            print("Hey, state %s was entered!" % state)
+        
+        @action(trans_ba)
+        def ba_action(sm, evt):
+            print("Got 'b' event followed by an 'a' event")
+
+Now we can run the StateMachine as seen previously:
+
+    mysm = MyStateMachine()
+    mysm.start()
+    mysm.post('a', 'b')
+    mysm.join(1)    # wait for the StateMachine to exit
+
+This should produce the following output:
+    
+    Hey, state {State-got_a} was entered!
+
+Note: when a StateMachine is defined as just described (in a StateMachine 
+subclass) it is no longer necessary to pass the top-level states into
+the StateMachine() constructor.
+
+Similarly, the following sequence of instructions:
+
+    mysm = MyStateMachine()
+    mysm.start()
+    mysm.post('b', 'a')
+    mysm.join(1)
+
+will produce this output:
+
+    Got 'b' event followed by an 'a' event
+
+Now let's introduce a variant of MyStateMachine that also accepts a 'c' event
+when in state "wait_a_b". Furthermore we need to update the action message
+in "trans_ba".
+
+    class MyStateMachineVariant(MyStateMachine):
+        got_c = State()
+        MyStateMachine.wait_a_b >> 'c' >> got_c >> MyStateMachine.got_b
+        
+        @on_exit(got_c)
+        def c_exit(sm, state):
+            print("Leaving state %s" % state)
+        
+        @action(MyStateMachine.trans_ba)
+        def trans_ba_variant(sm, event):
+            MyStateMachine.ba_action(sm, event)
+            print("... or maybe 'c' was first followed")
+     
+    mysm = MyStateMachineVariant()
+    mysm.start()
+    mysm.post('b', 'a')
+    mysm.join(1)
+
+produces the following output:
+
+    Got 'b' event followed by an 'a' event
+    ... or maybe 'c' was first followed
+
+and posting a 'c' event first:
+
+    mysm = MyStateMachineVariant()
+    mysm.start()
+    mysm.post('c', 'a')
+    mysm.join(1)
+
+will produce this output:
+
+    Leaving state {State-got_c}
+    Got 'b' event followed by an 'a' event
+    ... or maybe 'c' was first followed
+
+Now say we would prefer to introduce a variant that does away with
+the "got_a" state altogether, one way to do it would be to subclass
+MyStateMachineVariant and *mask* "got_a".
+
+    class MyOtherStateMachineVariant(MyStateMachineVariant):
+        mask_states('got_a')
+     
+    mysm = MyOtherStateMachineVariant()
+    mysm.start()
+    mysm.post('a', 'c', 'a')
+    mysm.join(1)
+
+The first 'a' event posted is ignored since MyOtherStateMachineVariant
+doesn't have the "got_a" state (or the associated transition from "wait_a_b").
+The resulting output is therefore only due to the last two events:
+
+    Leaving state {State-got_c}
+    Got 'b' event followed by an 'a' event
+    ... or maybe 'c' was first followed
+
+Graphing MyStateMachineVariant and MyOtherStateMachineVariant is an easy
+way to show their differences:
+
+    MyStateMachineVariant().graph(dot="rankdir=LR")
+    MyOtherStateMachineVariant().graph(dot="rankdir=LR")
+
+![MyStateMachineVariant](images/sm_inheritance_1.png)
+![MyOtherStateMachineVariant](images/sm_inheritance_2.png)
+
+
+It is possible to mask transitions using the same principle by using the
+mask_transitions function inside a StateMachine subclass definition.
+
+#### Composition
+Now let's assume you don't so much want to create a variant of an existing
+StateMachine, but instead want to combine several existing
+StateMachines into a single larger one. This is where composition comes in.
+Let's start with a simple base StateMachine:
+
+    class A(StateMachine):
+        a_0 = State()
+        
+        @on_enter(a_0)
+        def a_enter(sm, state):
+            print("Entered %s" % state)
+            
+        InitialState() >> a_0 >> 'a' >> FinalState()
+
+And compose several copies of A into a larger StateMachine:
+
+    class B(StateMachine):
+        # we need at leas one State or Transition attribute:
+        i = InitialState()
+        i >> A.as_state() >> 'b' >> A.as_state() >> FinalState()
+
+![B StateMachine based on the A StateMachine](images/sm_composition.png)
+
+Now if we run the B StateMachine:
+
+    b = B()
+    b.start()
+    b.post('a', 'b', 'a')
+    b.join(1)
+
+we should obtain the following output:
+
+    Entered {State-a_0}
+    Entered {State-a_0}
+
+
 ### (Scapy)
 
 [Wikipedia]: http://en.wikipedia.org/wiki/Finite-state_machine
-

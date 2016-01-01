@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014-2015 William Barsse
+# Copyright 2014-2016 William Barsse
 #
 ################################################################################
 #
@@ -45,6 +45,7 @@ from toysm.core import State, PseudoState, ParallelState, InitialState, \
     Transition
 from toysm.public import public
 from toysm.event_queue import EventQueue
+from toysm.base_sm import BaseStateMachine, BadSMDefinition
 import logging
 
 LOG = logging.getLogger(__name__)
@@ -155,11 +156,11 @@ class SMState(object):
 
 
 @public
-class StateMachine(object):
+class StateMachine(BaseStateMachine):
     """StateMachine .... think of something smart to put here ;-)."""
     MAX_STOP_WAIT = .1
 
-    def __init__(self, cstate, *states, **kargs):
+    def __init__(self, *states, **kargs):
         """
         Creates a StateMachine. All non-keyword arguments are top-level
         states, the first of which will be considered the "Initial" state.
@@ -178,16 +179,26 @@ class StateMachine(object):
         if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
                             (list(set(kargs.keys()) - allowed_kargs)))
+        super(StateMachine, self).__init__()
         if states:
-            self._cstate = State()
-            self._cstate.add_state(cstate, initial=True)
-            for s in states:
-                self._cstate.add_state(s)
-        elif isinstance(cstate, State):
-            self._cstate = cstate
-        else:
-            # State expression is wrapped into a superstate
-            self._cstate = State(sexp=cstate)
+            cstate = states[0]
+            if len(states) == 1:
+                if isinstance(cstate, State):
+                    self._cstate = cstate
+                else:
+                    # State expression is wrapped into a superstate
+                    self._cstate = State(sexp=cstate)
+            elif len(states) > 1:
+                self._cstate = State()
+                self._cstate.add_state(cstate, initial=True)
+                for s in states[1:]:
+                    self._cstate.add_state(s)
+            elif not hasattr(self, '_cstate'):
+                raise BadSMDefinition("No StateMachine definition provided, "
+                                      "this can be done either in the "
+                                      "constructor arguments or by defining "
+                                      "a States/Transitions in a subclass "
+                                      "of %s" % self.__class__.__name__)
         # Event Queue shared by all instances of the State Machine
         # Queue elements are (SMState, evt) tuples
         self._event_queue = EventQueue(dflt_prio=STD_EVENT)
@@ -488,8 +499,22 @@ class StateMachine(object):
     def __str__(self):
         return 'StateMachine'
 
-    def graph(self, fname=None, fmt=None, prg=None):
-        """Generates a graph of the State Machine."""
+    def graph(self, fname=None, fmt=None, prg=None, dot=None):
+        """Generates a graph of the State Machine.
+
+        Args:
+             fname: name of the file in which to save the generated graph.
+                    When no file name is provided, the graph is simply
+                    displayed.
+             fmt:   file format for the generated graph file. This will
+                    default to the suffix of fname, or "svg" if no suffix
+                    can be determined.
+             prg:   Override the program used for graph generation with
+                    a shell command, e.g. prg="dot -Tpng > myfile" or
+                    prg="cat > debug.dot"
+             dot:   graph level directives (see man dot) that will be
+                    included verbatim in the graph definition.
+       """
 
         def write_node(stream, state, transitions=None):
             """Writes a state's representation in dot format."""
@@ -541,6 +566,8 @@ class StateMachine(object):
             f = proc.stdin
             transitions = []
             f.write(b"digraph { compound=true; edge [arrowhead=vee]\n")
+            if dot is not None:
+                f.write(_bytes(dot + "\n"))
             write_node(f, self._cstate, transitions=transitions)
             for t in transitions:
                 src, tgt = t.source, t.target or t.source

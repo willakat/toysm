@@ -29,6 +29,7 @@ from inspect import isclass
 from six import with_metaclass
 from toysm.public import public
 import logging
+
 LOG = logging.getLogger(__name__)
 
 
@@ -44,6 +45,7 @@ class IllFormedException(Exception):
 
 class _StateDescriptor(object):
     """Holder for the dynamic components of a State."""
+
     def __init__(self, copy=None):
         if copy:
             self.active_substate = copy.active_substate
@@ -55,7 +57,8 @@ class _StateDescriptor(object):
         self.exit_required = None
         self.activity_complete = True
 
-        # The following are used when a State both has children and a do-activity
+        # The following are used when a State both has children and a
+        # do-activity
         self.final_reached = False
         self.complete = False
         self.lock = None
@@ -99,7 +102,7 @@ class State(object):
                   arguments are passed into the function as with on_enter.
 
         do        function representing the do-activity of this state,
-                  it will be run on deidicated thread. the function is called
+                  it will be run on dedicated thread. the function is called
                   with the following arguments (sm, state, event),
                   where sm and state are as in on_enter. The event argument
                   is an Event object that will be set if the StateMachine needs
@@ -111,27 +114,23 @@ class State(object):
         """
         super(State, self).__init__()
         self.transitions = []
+        self.rev_transitions = []
         self.name = name
-        self.initial = None     # Initial substate (if any)
+        self.initial = None  # Initial substate (if any)
         self.children = set()
         self.hooks = {
             'pre_entry': [],
             'post_entry': [],
             'pre_exit': [],
-            'post_exit': [], }
+            'post_exit': [],}
         self.parent = None
         if parent:
             self.set_parent(parent, initial=initial)
         if sexp:
             sexp.set_parent(self, initial=True)
-        if on_enter:
-            self.add_hook('pre_entry', on_enter)
-        if on_exit:
-            self.add_hook('post_exit', on_exit)
+        self._on_enter = on_enter
+        self._on_exit = on_exit
         self.do_activity = do
-        if do:
-            self.add_hook('post_entry', self.start_do_activity)
-            self.add_hook('pre_exit', self.stop_do_activity)
 
     def get_enabled_transitions(self, sm, evt):
         """Return transitions from the state for the given event, or None
@@ -154,7 +153,7 @@ class State(object):
         """Return transitions for event with this state as source."""
         transitions = []
         for t in self.transitions:
-            if t._is_triggered(sm, evt):  #pylint: disable=protected-access
+            if t._is_triggered(sm, evt):  # pylint: disable=protected-access
                 LOG.debug('%s - transition triggered by event %r: %s',
                           self, evt, t)
                 transitions = [t]
@@ -170,7 +169,7 @@ class State(object):
         return transitions
 
     def get_entry_transitions(self, sm):
-        """Return a list of transitions triggered by enterring this state."""
+        """Return a list of transitions triggered by entering this state."""
         if self.children:
             if self.initial:
                 # pylint: disable=protected-access
@@ -215,8 +214,12 @@ class State(object):
         """
         LOG.debug("%s - Entering state", self)
         self._call_hooks(sm, 'pre_entry')
+        if self._on_enter is not None:
+            self._on_enter(sm, self)
         self.on_entry(sm)
         self._enter_actions(sm)
+        if self.do_activity is not None:
+            self.start_do_activity(sm, self)
         self._call_hooks(sm, 'post_entry')
 
     def _enter_actions(self, sm):
@@ -241,9 +244,9 @@ class State(object):
         if self.do_activity and self.children:
             desc = sm.retrieve_state(self)
             with desc.lock:
-                if (not desc.complete
-                        and desc.activity_complete
-                        and desc.final_reached):
+                if (not desc.complete and
+                        desc.activity_complete and
+                        desc.final_reached):
                     desc.complete = True
                     sm.post_completion(self)
         else:
@@ -265,9 +268,13 @@ class State(object):
         """
         if not only_children:
             self._call_hooks(sm, 'pre_exit')
+            if self.do_activity is not None:
+                self.stop_do_activity(sm, self)
         self._exit_actions(sm, only_children)
         if not only_children:
             self.on_exit(sm)
+            if self._on_exit is not None:
+                self._on_exit(sm, self)
             self._call_hooks(sm, 'post_exit')
             LOG.debug("%s - Exiting state", self)
 
@@ -288,6 +295,7 @@ class State(object):
         if desc.lock is None and self.children:
             desc.lock = Lock()
         exit_required = desc.exit_required = Event()
+
         def do():
             """target for the do-activity Thread."""
             while not exit_required.is_set():
@@ -296,6 +304,7 @@ class State(object):
                     self._check_completion(sm)
                     break
             desc.do_thread = None
+
         desc.do_thread = Thread(target=do)
         LOG.debug("%s - Starting do-activity", self)
         desc.do_thread.start()
@@ -322,6 +331,7 @@ class State(object):
     def accept_transition(self, t):
         """Called when a transition designates the state as its target."""
         t.target = self
+        self.rev_transitions.append(t)
 
     def accept_parent(self, parent, initial):
         """Called when this state's parent is set."""
@@ -369,7 +379,7 @@ class State(object):
         """
         kind = {'entry': 'pre_entry',
                 'enter': 'pre_entry',
-                'exit' : 'post_exit'}.get(kind, kind)
+                'exit': 'post_exit'}.get(kind, kind)
         self.hooks[kind].append((hook, args, kargs))
 
     def set_active_substate(self, sm, state, transition_followed):
@@ -405,6 +415,19 @@ class State(object):
 
     def __lshift__(self, other):
         return _StateExpression(self) << other
+
+    def __copy__(self):
+        """
+        Return a copy of the state.
+
+        The copied states will have no transitions, children
+        or hooks.
+        """
+        s_copy = type(self)(name=self.name,
+                            on_enter=self._on_enter,
+                            on_exit=self._on_exit)
+        s_copy.do_activity = self.do_activity
+        return s_copy
 
 
 @public
@@ -449,11 +472,13 @@ class ParallelRegion(State):
 
 class _ParallelStateDescriptor(_StateDescriptor):
     """Holder for the dynamic components of a State."""
+
     def __init__(self, copy=None):
         super(_ParallelStateDescriptor, self).__init__()
         del self.active_substate
         if copy:
             self.still_running_children = copy.still_running_children.copy()
+
 
 @public
 class ParallelState(State):
@@ -492,7 +517,7 @@ class ParallelState(State):
 
     def get_entry_transitions(self, sm):
         """Returns the list of transitions triggered by entering this state."""
-        #pylint: disable=protected-access
+        # pylint: disable=protected-access
         transitions = []
         for c in self.children - self._history:
             transitions.append(Transition(source=self, target=c,
@@ -518,7 +543,7 @@ class ParallelState(State):
 
     def _exit_actions(self, sm, only_children=False):
         for c in self.children - self._history:
-            c._exit(sm)         #pylint: disable=protected-access
+            c._exit(sm)  # pylint: disable=protected-access
 
     def get_active_states(self, sm):
         desc = sm.retrieve_state(self)
@@ -531,9 +556,9 @@ class ParallelState(State):
     def set_active_substate(self, sm, state, transition_followed):
         # pylint: disable = protected-access
         if transition_followed.kind != Transition._ENTRY \
-            and state not in self._history:
-            raise IllFormedException("Cannot follow transition %s into a Parallel "
-                                     "state." % transition_followed)
+                and state not in self._history:
+            raise IllFormedException("Cannot follow transition %s into a "
+                                     "Parallel state." % transition_followed)
 
 
 @public
@@ -572,12 +597,12 @@ class PseudoState(State):
 
     def get_enabled_transitions(self, sm, evt):
         assert False, "PseudoStates cannot have transitions with " \
-               "trigger conditions"
+                      "trigger conditions"
 
     def get_entry_transitions(self, sm):
         allowed, transitions = self.transition_terminal, []
         for t in self.transitions:
-            if t._is_triggered(sm, None):  #pylint: disable=protected-access
+            if t._is_triggered(sm, None):  # pylint: disable=protected-access
                 allowed, compound_transition = \
                     t.target.get_entry_transitions(sm)
                 if allowed:
@@ -595,6 +620,7 @@ class InitialState(PseudoState):
     """PseudoState that designates the 'initial' substate of a composite
        state.
     """
+
     def add_transition(self, t):
         if self.transitions:
             raise IllFormedException('Initial state must have only one '
@@ -612,6 +638,7 @@ class InitialState(PseudoState):
             raise IllFormedException("No suitable transition from initial "
                                      "state of %s" % self.parent)
         return True, transitions
+
 
 @public
 class Junction(PseudoState):
@@ -642,7 +669,6 @@ class HistoryState(PseudoState):
                                      'transition')
         super(HistoryState, self).add_transition(t)
 
-
     def accept_parent(self, parent, initial):
         if isinstance(parent, ParallelState):
             raise IllFormedException("Shallow History state parent cannot be a "
@@ -662,15 +688,16 @@ class HistoryState(PseudoState):
             LOG.debug('%s - Following transition to saved sate %s',
                       self, saved)
             _, saved_state_entry_transitions = saved.get_entry_transitions(sm)
-            #pylint: disable=protected-access
-            return True, [Transition(source=self, target=saved,
-                                     kind=Transition._ENTRY)] \
-                         + saved_state_entry_transitions
+            # pylint: disable=protected-access
+            return (True, [Transition(source=self, target=saved,
+                                      kind=Transition._ENTRY)] +
+                    saved_state_entry_transitions)
         if self.transitions:
             LOG.debug('%s - Following default transition', self)
             return True, self.transitions
         LOG.debug('%s - Using default entry for %s', self, self.parent)
         return self.parent.get_entry_transitions(sm)
+
 
 @public
 class DeepHistoryState(HistoryState):
@@ -684,22 +711,16 @@ class DeepHistoryState(HistoryState):
 
     def add_transition(self, t):
         if isinstance(self.parent, ParallelState):
-            raise IllFormedException('DeepHistory state %s cannot be the source '
-                                     'of transition %s because parent is a '
+            raise IllFormedException('DeepHistory state %s cannot be the source'
+                                     ' of transition %s because parent is a '
                                      'ParallelState.'
-                                     %(self, t))
+                                     % (self, t))
         super(DeepHistoryState, self).add_transition(t)
-
-    def accept_transition(self, t):
-        # It is acceptable for a DeepHistoryState to be the target
-        # of a transition, even when its parent is a ParallelState
-        t.target = self
 
     def accept_parent(self, parent, initial):
         if initial:
             raise IllFormedException("History state cannot be an initial state")
         parent.add_hook('pre_exit', self.save_state)
-
 
     def save_state(self, sm, *_):
         sm.store_state(self, list(self.parent.get_active_states(sm)))
@@ -718,14 +739,14 @@ class DeepHistoryState(HistoryState):
         return self.parent.get_entry_transitions(sm)
 
     def _enter_actions(self, sm):
-        #pylint: disable=protected-access
+        # pylint: disable=protected-access
         saved = sm.retrieve_state(self)
         if saved:
             self.parent.restore_state(sm, saved[0][1])
             for (s, _) in saved[1:]:
                 # sm already has the saved states, all we need to
                 # do here is re-enter all of them.
-                #s.restore_state(sm, desc)
+                # s.restore_state(sm, desc)
                 s._enter(sm)
 
 
@@ -734,9 +755,8 @@ class _SinkState(PseudoState):
     transition_terminal = True
 
     def add_transition(self, t):
-        raise IllFormedException(
-            "%s is a sink, it can't be the source of a transition" %
-            self.__class__.__name__)
+        raise IllFormedException("%s is a sink, it can't be the source of a "
+                                 "transition" % self.__class__.__name__)
 
 
 @public
@@ -751,6 +771,7 @@ class FinalState(_SinkState):
         'width': .1,
         'margin': 0,
     }
+
     def _enter_actions(self, sm):
         self.parent.reached_final(sm)
 
@@ -765,6 +786,7 @@ class TerminateState(_SinkState):
         'height': 0,
         'width': 0,
     }
+
     def _enter_actions(self, sm):
         sm.stop()
 
@@ -795,7 +817,7 @@ class _StateExpression(object):
     def set_parent(self, state, initial=False):
         """Set the parent state of all states in the expression."""
         if isinstance(self.tail, Transition) \
-            or isinstance(self.head, Transition):
+                or isinstance(self.head, Transition):
             raise IllFormedException('State expressions must not begin/end with'
                                      ' a transition.')
         for s in self.states:
@@ -815,6 +837,7 @@ class _StateExpression(object):
         """Connects a and b where a or b can be either a State or
            a Transition.
         """
+
         def prep(e):
             """Take appropriate action based on e's type
                for the connection to be performed.
@@ -824,6 +847,7 @@ class _StateExpression(object):
             else:
                 e = Transition.make_transition(e)
             return e
+
         a, b = prep(a), prep(b)
         if isinstance(a, State):
             if isinstance(b, State):
@@ -857,11 +881,13 @@ class _StateExpression(object):
             self.tail, _ = self.connect(other, self.tail)
         return self
 
+
 ################################################################################
 #
-## Transitions ##
+# Transitions ##
 #
 ################################################################################
+
 
 class TransitionMeta(type):
     """Metaclass for Transitions
@@ -870,12 +896,13 @@ class TransitionMeta(type):
        supports a 'ctor_accepts' method. The latter is used to determine
        which Transition subclass to use when Transition.make_transition
        is called."""
+
     def __new__(mcs, name, bases, kwds):
         # register the new Transition if it has an ctor_accepts method
         cls = type.__new__(mcs, name, bases, kwds)
         if 'ctor_accepts' in kwds:
             # later additions override previously known Transition classes.
-            #pylint: disable=protected-access
+            # pylint: disable=protected-access
             Transition._transition_cls.insert(0, cls)
         return cls
 
@@ -907,7 +934,7 @@ class Transition(with_metaclass(TransitionMeta)):
     LOCAL = 'local'
     _ENTRY = 'entry'
 
-    _transition_cls = []    # list of known subclasses
+    _transition_cls = []  # list of known subclasses
 
     dot = {
         'label': lambda t: t.desc
@@ -939,9 +966,9 @@ class Transition(with_metaclass(TransitionMeta)):
 
            This method is intended to be overridden by subclasses.
         """
-        #pylint: disable=unused-argument, no-self-use
+        # pylint: disable=unused-argument, no-self-use
         return evt is not None  # Not a completion event (Completion events
-                                # are recognized by CompletionTransition.
+        # are recognized by CompletionTransition.
 
     def _is_triggered(self, sm, evt):
         """Called to determine if the transition is enabled for the <evt>
@@ -954,7 +981,6 @@ class Transition(with_metaclass(TransitionMeta)):
         LOG.debug('Evaluating transition %s for event %s: %s',
                   self, evt, triggered)
         return triggered
-
 
     def _action(self, sm, evt):
         """Called when the StateMachine follows this transition."""
@@ -993,6 +1019,22 @@ class Transition(with_metaclass(TransitionMeta)):
         raise IllFormedException("Cannot build a transition using '%r'" %
                                  value)
 
+    def __copy__(self, cpy=None, skip_fields=None):
+        """
+        Return a copy of the Transition.
+
+        The copy will share the features of the copied transitions
+        except for the source, target and hooks.
+        """
+        cpy = cpy or type(self)()
+        if skip_fields is None:
+            skip_fields = set()
+        skip_fields |= {'source', 'target', 'hooks'}
+        cpy.__dict__.update({k: v for (k, v) in self.__dict__.items()
+                             if k not in skip_fields})
+        return cpy
+
+
 @public
 class CompletionTransition(Transition):
     """Special Transition used to indicate that the Transition should
@@ -1001,14 +1043,17 @@ class CompletionTransition(Transition):
        this trigger should however not expect <evt> to be anything else
        than None.
     """
+
     def is_triggered(self, sm, evt):
         return evt is None
+
 
 @public
 class EqualsTransition(Transition):
     """Simple Transition type that checks events against a
        pre-defined value.
     """
+
     @classmethod
     def ctor_accepts(cls, value, **_):
         """Constructor accepts any value as long as it isn't a class."""
@@ -1022,6 +1067,10 @@ class EqualsTransition(Transition):
 
     def is_triggered(self, sm, evt):
         return evt is not None and self.value == evt
+
+    def __copy__(self):
+        cpy = type(self)(evt_value=self.value)
+        return super(EqualsTransition, self).__copy__(cpy)
 
 
 @public
@@ -1063,16 +1112,16 @@ class Timeout(Transition):
         """Enterring the source state causes a call to _timeout
            to be schedule.
         """
+        # pylint: disable = W0212
         self._sched_id = \
-            sm._sched.enter(                    # pylint: disable = W0212
-                self.delay, 10, self._timeout, [sm])
+            sm._sched.enter(self.delay, 10, self._timeout, [sm])
 
     def _cancel(self, sm, _):
         """Exiting the source state cancels the timer that was
            started on entry.
         """
         if self._sched_id:
-            sm._sched.cancel(self._sched_id)    # pylint: disable = W0212
+            sm._sched.cancel(self._sched_id)  # pylint: disable = W0212
             self._sched_id = None
 
     def _timeout(self, sm):
@@ -1086,5 +1135,9 @@ class Timeout(Transition):
     def is_triggered(self, sm, evt):
         LOG.debug('timeout triggered: %s, %r %r', self, evt, self._sched_id)
         return self is evt
+
+    def __copy__(self):
+        cpy = type(self)(delay=self.delay)
+        return super(Timeout, self).__copy__(cpy)
 
 # vim:expandtab:sw=4:sts=4

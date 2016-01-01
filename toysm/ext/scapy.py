@@ -39,7 +39,7 @@ from inspect import isclass
 from scapy.packet import Packet, NoPayload
 
 try:
-    from scapy.pipetool import AutoSource
+    from scapy.pipetool import AutoSource, Pipe
     HAVE_PIPETOOL = True
 except ImportError:
     from warnings import warn
@@ -48,6 +48,7 @@ except ImportError:
     HAVE_PIPETOOL = False
 
 from toysm import StateMachine, Transition, public
+from toysm.base_sm import SMMeta
 from toysm.public import public
 
 @public
@@ -148,8 +149,13 @@ class PacketTransition(Transition):
 
 
 if HAVE_PIPETOOL:
+    class SMBoxMeta(SMMeta, Pipe.__metaclass__):
+        pass
+
     @public
     class SMBox(StateMachine, AutoSource):
+        __metaclass__ = SMBoxMeta
+
         def __init__(self, *args, **kargs):
             StateMachine.__init__(self, *args, **kargs)
             AutoSource.__init__(self, name=kargs.get('name'))

@@ -33,7 +33,7 @@ except ImportError:
     import Queue as queue
 
 
-class EventQueue:
+class EventQueue(object):
     """Queue to store events posted to a StateMachine."""
 
     def __init__(self, dflt_prio=None):
