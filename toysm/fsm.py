@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2014-2015 William Barsse
+# Copyright 2014-2016 William Barsse
 #
 ################################################################################
 #
@@ -179,6 +179,7 @@ class StateMachine(BaseStateMachine):
         if not set(kargs.keys()) <= allowed_kargs:
             raise TypeError("Unexpected keyword argument(s) '%s'" %
                             (list(set(kargs.keys()) - allowed_kargs)))
+        super(StateMachine, self).__init__()
         if states:
             cstate = states[0]
             if len(states) == 1:
@@ -498,8 +499,22 @@ class StateMachine(BaseStateMachine):
     def __str__(self):
         return 'StateMachine'
 
-    def graph(self, fname=None, fmt=None, prg=None):
-        """Generates a graph of the State Machine."""
+    def graph(self, fname=None, fmt=None, prg=None, dot=None):
+        """Generates a graph of the State Machine.
+
+        Args:
+             fname: name of the file in which to save the generated graph.
+                    When no file name is provided, the graph is simply
+                    displayed.
+             fmt:   file format for the generated graph file. This will
+                    default to the suffix of fname, or "svg" if no suffix
+                    can be determined.
+             prg:   Override the program used for graph generation with
+                    a shell command, e.g. prg="dot -Tpng > myfile" or
+                    prg="cat > debug.dot"
+             dot:   graph level directives (see man dot) that will be
+                    included verbatim in the graph definition.
+       """
 
         def write_node(stream, state, transitions=None):
             """Writes a state's representation in dot format."""
@@ -551,6 +566,8 @@ class StateMachine(BaseStateMachine):
             f = proc.stdin
             transitions = []
             f.write(b"digraph { compound=true; edge [arrowhead=vee]\n")
+            if dot is not None:
+                f.write(_bytes(dot + "\n"))
             write_node(f, self._cstate, transitions=transitions)
             for t in transitions:
                 src, tgt = t.source, t.target or t.source
