@@ -1,6 +1,6 @@
 ################################################################################
 #
-# Copyright 2015 William Barsse
+# Copyright 2015-2016 William Barsse
 #
 ################################################################################
 #
@@ -497,11 +497,6 @@ class BaseStateMachine(with_metaclass(SMMeta)):
     Provides composition behavior and isolation for Transitions/States
     within a StateMachine subclass.
     """
-    def __init__(self):
-        # To be removed at one point...
-        super(BaseStateMachine, self).__init__(self._cstate)
-        # super(XStateMachine, self).__init__()
-
     @classmethod
     def get_state(cls, name):
         """Returns a copy of a named State from a StateMachine.
