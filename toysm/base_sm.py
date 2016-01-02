@@ -244,15 +244,21 @@ def _get_masked(copy_ctx, cls):
     Returns:
 
     """
-
     if cls is None:
         masked_states = set()
         masked_transitions = set()
     else:
-        masked_states = {cls._states[s] for s in copy_ctx.masked_states
+        prefix = cls.__name__ + '.'
+
+        def filter_mask(mask):
+            return {i for i in mask if '.' not in i} | \
+                   {i[len(prefix):] for i in mask if i.startswith(prefix)}
+
+        masked_states = {cls._states[s]
+                         for s in filter_mask(copy_ctx.masked_states)
                          if s in cls._states}
         masked_transitions = {cls._transitions[t]
-                              for t in copy_ctx.masked_transitions
+                              for t in filter_mask(copy_ctx.masked_transitions)
                               if t in cls._transitions}
     return masked_states, masked_transitions
 
@@ -392,8 +398,9 @@ class SMMeta(type):
         ctx = _COPY_CONTEXT_STACK.pop_ctx()
         states = {}
         transitions = {}
-        unknown_masked_states = set(ctx.masked_states)
-        unknown_masked_transitions = set(ctx.masked_transitions)
+        unknown_masked_states = {s for s in ctx.masked_states if '.' not in s}
+        unknown_masked_transitions = {t for t in ctx.masked_transitions
+                                      if '.' not in t}
         copied_initial = False
         for b in bases: # pylint: disable=invalid-name
             if not (hasattr(b, '_states') or hasattr(b, '_transitions')):

@@ -368,6 +368,50 @@ we should obtain the following output:
     Entered {State-a_0}
     Entered {State-a_0}
 
+### More composition
+Now suppose that instead of composing based on complete StateMachines,
+all you need is bits and pieces from several that need to be slapped together.
+
+To illustrate we'll start with two simple StateMachines that we'll partially
+combine into a third.
+
+    class A(StateMachine):
+        a1 = State()
+        a2 = State()
+        f = FinalState()
+        InitialState() >> a1 >> 'a' >> \
+            State("This state is reachable by a1\nand thus seen by C") >> \
+            a2 >> f
+        
+    class B(StateMachine):
+        b1 = State()
+        b2 = State()
+        f = FinalState()
+        InitialState() >> State("This state won't be seen by C") >> \
+            b1 >> 'b' >> b2 >> f
+
+![MyStateMachineVariant](images/sm_composition_2_1.png)
+![MyStateMachineVariant](images/sm_composition_2_2.png)
+
+The C StateMachine is built using *parts* of both A and B without using either
+in its entirety:
+    
+    class C(StateMachine):
+        mask_states("A.f", "B.f")
+        i = InitialState()   # need at least one State or Transition attribute
+        i >> A.a1
+        A.a2 >> B.b1
+        B.b2 >> State("defined in C") >> 'c' >> FinalState()
+
+![MyStateMachineVariant](images/sm_composition_2_3.png)
+
+This example illustrates the distinction between the inheritance and composition
+paradigms, in the former the subclassing StateMachine inherits the entire 
+superclass whereas in the latter only the States reachable from the composed
+States are included.
+Naturally the masked States/Transitions mechanism can be used in both cases, 
+however the names of the masked elements need to be prefixed with their
+corresponding class name.
 
 ### (Scapy)
 
